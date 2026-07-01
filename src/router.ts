@@ -32,6 +32,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
   const routeHeaders = parseRouteHeaders(input.headers);
   const modelRequested = typeof chatBody.model === "string" ? chatBody.model : "steadyroute:auto";
   const client = detectClient(input.headers);
+  const routePolicy = routeHeaders.routePolicy ?? "auto";
   const { candidates, skips } = buildCandidates({
     db: input.db,
     body: chatBody,
@@ -47,7 +48,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
     method: input.method,
     client,
     modelRequested,
-    routePolicy: routeHeaders.routePolicy,
+    routePolicy,
     providerAllowlist: routeHeaders.providerAllowlist,
     providerDenylist: routeHeaders.providerDenylist,
     requestBody: originalBody,
@@ -227,6 +228,10 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
 }
 
 function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {
+  if (args.routeHeaders.routePolicy === "dogfood-invalid-key-then-fallback") {
+    return buildDogfoodFailureCandidates(args);
+  }
+
   const candidates: RouteCandidate[] = [];
   const skips: unknown[] = [];
   const exact = parseExactModel(args.modelRequested);
@@ -272,7 +277,40 @@ function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; m
   return { candidates, skips };
 }
 
-function resolveKey(db: Database.Database, provider: ProviderDefinition): KeyMaterial {
+function buildDogfoodFailureCandidates(args: { db: Database.Database; body: ChatRequestBody; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {
+  const normal = buildCandidates({ ...args, routeHeaders: { ...args.routeHeaders, routePolicy: null } });
+  const openrouter = PROVIDERS.find((provider) => provider.id === "openrouter");
+  const openrouterModel = openrouter?.models[0];
+  const invalidKey = openrouter ? resolveKey(args.db, openrouter, "dogfood-invalid") : null;
+
+  if (!openrouter || !openrouterModel || !invalidKey?.present) {
+    normal.skips.unshift({
+      provider: "openrouter",
+      model: openrouterModel?.id ?? "*",
+      reason: "dogfood-invalid-key-then-fallback requires openrouter/dogfood-invalid key alias"
+    });
+    return normal;
+  }
+
+  const invalidCandidate: RouteCandidate = {
+    provider: openrouter,
+    model: openrouterModel,
+    key: invalidKey,
+    exact: false
+  };
+  return {
+    candidates: [invalidCandidate, ...normal.candidates.filter((candidate) => !(candidate.provider.id === openrouter.id && candidate.key.alias === invalidKey.alias && candidate.model.id === openrouterModel.id))],
+    skips: normal.skips
+  };
+}
+
+function resolveKey(db: Database.Database, provider: ProviderDefinition, preferredAlias = "default"): KeyMaterial {
+  if (preferredAlias !== "default") {
+    const preferred = getProviderKey(db, provider.id, preferredAlias);
+    if (preferred) return { provider: provider.id, alias: preferredAlias, value: preferred, source: "key_store", present: true };
+    return { provider: provider.id, alias: preferredAlias, value: null, source: "none", present: false };
+  }
+
   const envKey = resolveProviderEnvKey(provider);
   if (envKey.present) return envKey;
   const stored = getProviderKey(db, provider.id, "default");

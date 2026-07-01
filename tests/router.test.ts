@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openDb } from "../src/db.js";
+import { addProviderKey, openDb } from "../src/db.js";
 import { explainRequest } from "../src/explain.js";
 import { routeRequest } from "../src/router.js";
 
@@ -21,13 +21,16 @@ describe("router fallback", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-test-"));
     homes.push(home);
     process.env.STEADYROUTE_HOME = home;
-    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-v1-invalid");
+    vi.stubEnv("GITHUB_MODELS_TOKEN", "ghp-test");
     const db = openDb();
+    addProviderKey(db, "openrouter", "dogfood-invalid", "sk-or-v1-invalid");
+    addProviderKey(db, "openrouter", "default", "sk-or-v1-valid");
     let calls = 0;
-    globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
       calls += 1;
       const textUrl = String(url);
-      if (textUrl.includes("openrouter.ai")) {
+      const auth = init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers) ? (init.headers as Record<string, string>).authorization : "";
+      if (textUrl.includes("openrouter.ai") && auth === "Bearer sk-or-v1-invalid") {
         return new Response(JSON.stringify({ error: { message: "User not found.", code: 401 } }), { status: 401 });
       }
       return new Response(JSON.stringify({
@@ -55,8 +58,9 @@ describe("router fallback", () => {
     expect(result.response.status).toBe(200);
     expect(calls).toBeGreaterThanOrEqual(2);
     const explanation = explainRequest(db, "req_fallback");
+    expect(explanation).toContain("openrouter/openrouter/free key=dogfood-invalid");
     expect(explanation).toContain("auth_failed");
     expect(explanation).toContain("fallbackable: trying next candidate");
-    expect(explanation).toContain("github_models / gpt-4o-mini");
+    expect(explanation).toContain("openrouter / openrouter/free");
   });
 });
