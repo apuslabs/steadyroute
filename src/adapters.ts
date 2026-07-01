@@ -1,5 +1,5 @@
 import { classifyProviderFailure, safeExcerpt, SteadyRouteError } from "./errors.js";
-import { responseStreamEventFromChatChunk } from "./protocol.js";
+import { createResponseStreamState, responseStreamEventsFromChatChunk } from "./protocol.js";
 import { estimateUsageFromText, unknownUsage, usageFromOpenAiBody } from "./usage.js";
 import type { ChatRequestBody, KeyMaterial, ProviderAttemptResult, ProviderDefinition, ProviderModel, StreamMetadata } from "./types.js";
 
@@ -138,9 +138,9 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   const metadata: StreamMetadata = { stream: true, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: "", finish_reason: null, interrupted: false, error_class: null };
-  let sequence = 0;
   let lastChunk: Record<string, unknown> | null = null;
   let sawOpenAiToolCalls = false;
+  const responseState = createResponseStreamState();
   let resolveMetadata: (value: { metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }) => void;
   const metadataPromise = new Promise<{ metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }>((resolve) => {
     resolveMetadata = resolve;
@@ -177,7 +177,7 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
               metadata.first_chunk_at ??= now;
               metadata.final_chunk_at = now;
               if (responseMode === "responses") {
-                for (const responseEvent of responseStreamEventFromChatChunk(lastChunk, sequence++)) {
+                for (const responseEvent of responseStreamEventsFromChatChunk(lastChunk, responseState)) {
                   controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseEvent)}\n\n`));
                 }
               } else {
@@ -220,7 +220,7 @@ function wrapGeminiSseStream(body: ReadableStream<Uint8Array>, model: string, he
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
   const metadata: StreamMetadata = { stream: true, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: "", finish_reason: null, interrupted: false, error_class: null };
-  let sequence = 0;
+  const responseState = createResponseStreamState();
   let resolveMetadata: (value: { metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }) => void;
   const metadataPromise = new Promise<{ metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }>((resolve) => {
     resolveMetadata = resolve;
@@ -255,7 +255,7 @@ function wrapGeminiSseStream(body: ReadableStream<Uint8Array>, model: string, he
               choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }]
             };
             if (responseMode === "responses") {
-              for (const responseEvent of responseStreamEventFromChatChunk(chunk, sequence++)) {
+              for (const responseEvent of responseStreamEventsFromChatChunk(chunk, responseState)) {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseEvent)}\n\n`));
               }
             } else {
