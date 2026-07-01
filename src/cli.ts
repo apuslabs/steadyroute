@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-import fs from "node:fs";
 import process from "node:process";
 import { Command } from "commander";
 import { loadConfig } from "./config.js";
@@ -8,6 +7,7 @@ import { buildDoctorReport, formatDoctor } from "./doctor.js";
 import { explainRequest } from "./explain.js";
 import { resolvePaths } from "./paths.js";
 import { PROVIDERS } from "./providers.js";
+import { readRuntimeStatus, removeRuntimeState, writeRuntimeState } from "./runtime.js";
 import { buildServer } from "./server.js";
 
 const program = new Command();
@@ -30,9 +30,9 @@ program
     }
     const app = buildServer({ db, host, port });
     await app.listen({ host, port });
-    const paths = resolvePaths();
-    fs.writeFileSync(paths.pidPath, `${process.pid}\n`, { mode: 0o600 });
+    writeRuntimeState({ pid: process.pid, host, port, local_only: isLocalHost(host) });
     console.log(`steadyroute listening on http://${host}:${port}`);
+    const paths = resolvePaths();
     console.log(`request ledger: ${paths.dbPath}`);
   });
 
@@ -40,15 +40,20 @@ program
   .command("stop")
   .description("Stop a background SteadyRoute server started in this user profile")
   .action(() => {
-    const paths = resolvePaths();
-    if (!fs.existsSync(paths.pidPath)) {
-      console.log("No steadyroute pid file found.");
+    const runtime = readRuntimeStatus();
+    if (runtime.status === "not_running") {
+      console.log("No steadyroute runtime file found.");
       return;
     }
-    const pid = Number(fs.readFileSync(paths.pidPath, "utf8").trim());
+    if (!runtime.state) {
+      removeRuntimeState();
+      console.log(`Removed stale steadyroute runtime metadata: ${runtime.reason}`);
+      return;
+    }
+    const pid = runtime.state.pid;
     try {
       process.kill(pid, "SIGTERM");
-      fs.unlinkSync(paths.pidPath);
+      removeRuntimeState();
       console.log(`Stopped steadyroute process ${pid}`);
     } catch (error) {
       console.error(`Could not stop process ${pid}: ${error instanceof Error ? error.message : String(error)}`);

@@ -8,6 +8,7 @@ export interface SteadyRoutePaths {
   dbPath: string;
   masterKeyPath: string;
   pidPath: string;
+  runtimePath: string;
 }
 
 export function resolvePaths(): SteadyRoutePaths {
@@ -17,7 +18,8 @@ export function resolvePaths(): SteadyRoutePaths {
     configPath: path.join(home, "config.json"),
     dbPath: process.env.STEADYROUTE_DB_PATH || path.join(home, "steadyroute.sqlite"),
     masterKeyPath: path.join(home, "master-key"),
-    pidPath: path.join(home, "steadyroute.pid")
+    pidPath: path.join(home, "steadyroute.pid"),
+    runtimePath: path.join(home, "steadyroute.runtime.json")
   };
 }
 

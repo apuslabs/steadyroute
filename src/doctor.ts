@@ -3,10 +3,14 @@ import { loadConfig } from "./config.js";
 import { listProviderKeys } from "./db.js";
 import { resolvePaths } from "./paths.js";
 import { PROVIDERS, resolveProviderEnvKey } from "./providers.js";
+import { readRuntimeStatus, type RuntimeStatus } from "./runtime.js";
 
 export interface DoctorReport {
   paths: Record<string, string>;
-  server: { host: string; port: number; local_only: boolean };
+  server: {
+    configured: { host: string; port: number; local_only: boolean };
+    runtime: RuntimeStatus & { path: string };
+  };
   key_store: { encrypted: boolean; stored_keys: Array<{ provider: string; alias: string; updated_at: string }> };
   providers: Array<Record<string, unknown>>;
   catalog: { source: string; version: string };
@@ -44,9 +48,18 @@ export async function buildDoctorReport(db: Database.Database, probe = true): Pr
       database: paths.dbPath,
       ledger: paths.dbPath,
       key_store: paths.dbPath,
-      master_key: paths.masterKeyPath
+      master_key: paths.masterKeyPath,
+      pid: paths.pidPath,
+      runtime: paths.runtimePath
     },
-    server: { host: config.host, port: config.port, local_only: config.host === "127.0.0.1" || config.host === "localhost" || config.host === "::1" },
+    server: {
+      configured: {
+        host: config.host,
+        port: config.port,
+        local_only: config.host === "127.0.0.1" || config.host === "localhost" || config.host === "::1"
+      },
+      runtime: { ...readRuntimeStatus(), path: paths.runtimePath }
+    },
     key_store: {
       encrypted: true,
       stored_keys: stored.map((key) => ({ provider: key.provider, alias: key.alias, updated_at: key.updated_at }))
@@ -77,7 +90,14 @@ export function formatDoctor(report: DoctorReport): string {
   lines.push(`Ledger path: ${report.paths.ledger}`);
   lines.push(`Key store path: ${report.paths.key_store}`);
   lines.push(`Key storage: encrypted=${report.key_store.encrypted}, stored_keys=${report.key_store.stored_keys.length}`);
-  lines.push(`Server: ${report.server.host}:${report.server.port} local_only=${report.server.local_only}`);
+  lines.push(`Server config: ${report.server.configured.host}:${report.server.configured.port} local_only=${report.server.configured.local_only}`);
+  if (report.server.runtime.status === "running") {
+    lines.push(`Running server: ${report.server.runtime.state.host}:${report.server.runtime.state.port} pid=${report.server.runtime.state.pid} local_only=${report.server.runtime.state.local_only}`);
+  } else if (report.server.runtime.status === "stale") {
+    lines.push(`Running server: none (${report.server.runtime.reason})`);
+  } else {
+    lines.push("Running server: none");
+  }
   lines.push(`Catalog: ${report.catalog.source} (${report.catalog.version})`);
   lines.push(`Trace retention: ${report.tracing.retention}; full_bodies=${report.tracing.full_bodies}`);
   lines.push("");
