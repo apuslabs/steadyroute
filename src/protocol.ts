@@ -35,6 +35,9 @@ export function responsesToChat(body: Record<string, unknown>): ChatRequestBody 
   if (typeof body.instructions === "string") {
     chat.messages = [{ role: "system", content: body.instructions }, ...messages];
   }
+  if (typeof body.max_output_tokens === "number" && typeof chat.max_tokens !== "number") {
+    chat.max_tokens = body.max_output_tokens;
+  }
   return chat;
 }
 

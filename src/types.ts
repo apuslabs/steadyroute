@@ -106,6 +106,7 @@ export interface StreamMetadata {
   final_text: string;
   finish_reason: string | null;
   interrupted: boolean;
+  error_class?: ErrorClass | null;
 }
 
 export interface ProviderAttemptResult {

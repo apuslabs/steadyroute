@@ -137,9 +137,10 @@ async function streamGemini(input: AdapterInput, responseMode: "chat" | "respons
 function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string, string>, responseMode: "chat" | "responses"): StreamResult {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
-  const metadata: StreamMetadata = { stream: true, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: "", finish_reason: null, interrupted: false };
+  const metadata: StreamMetadata = { stream: true, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: "", finish_reason: null, interrupted: false, error_class: null };
   let sequence = 0;
   let lastChunk: Record<string, unknown> | null = null;
+  let sawOpenAiToolCalls = false;
   let resolveMetadata: (value: { metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }) => void;
   const metadataPromise = new Promise<{ metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }>((resolve) => {
     resolveMetadata = resolve;
@@ -168,6 +169,7 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
               if (!parsed || typeof parsed !== "object") continue;
               lastChunk = parsed as Record<string, unknown>;
               const text = extractOpenAiDeltaText(lastChunk);
+              if (hasOpenAiToolCalls(lastChunk)) sawOpenAiToolCalls = true;
               if (text) metadata.final_text += text;
               metadata.finish_reason = extractFinishReason(lastChunk) ?? metadata.finish_reason;
               metadata.chunk_count += 1;
@@ -189,6 +191,10 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
         }
         if (responseMode === "chat" && !metadata.done_seen) controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         metadata.done_seen = true;
+        if (metadata.finish_reason === "tool_calls" && !sawOpenAiToolCalls) {
+          metadata.interrupted = true;
+          metadata.error_class = "tool_unsupported";
+        }
         controller.close();
       } catch (error) {
         metadata.interrupted = true;
@@ -213,7 +219,7 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
 function wrapGeminiSseStream(body: ReadableStream<Uint8Array>, model: string, headers: Record<string, string>, responseMode: "chat" | "responses"): StreamResult {
   const decoder = new TextDecoder();
   const encoder = new TextEncoder();
-  const metadata: StreamMetadata = { stream: true, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: "", finish_reason: null, interrupted: false };
+  const metadata: StreamMetadata = { stream: true, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: "", finish_reason: null, interrupted: false, error_class: null };
   let sequence = 0;
   let resolveMetadata: (value: { metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }) => void;
   const metadataPromise = new Promise<{ metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }>((resolve) => {
@@ -359,6 +365,12 @@ function extractFinishReason(chunk: Record<string, unknown>): string | null {
   const choices = Array.isArray(chunk.choices) ? chunk.choices as Array<Record<string, unknown>> : [];
   const finish = choices[0]?.finish_reason;
   return typeof finish === "string" ? finish : null;
+}
+
+function hasOpenAiToolCalls(chunk: Record<string, unknown>): boolean {
+  const choices = Array.isArray(chunk.choices) ? chunk.choices as Array<Record<string, unknown>> : [];
+  const delta = choices[0]?.delta && typeof choices[0]?.delta === "object" ? choices[0]?.delta as Record<string, unknown> : {};
+  return Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0;
 }
 
 function extractGeminiText(body: unknown): string {
