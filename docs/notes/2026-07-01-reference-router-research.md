@@ -27,3 +27,9 @@ FreeLLMAPI, 9Router, and OmniRoute were inspected as behavior references only. N
 - Anthropic Messages support is deferred because the MVP gate requires OpenAI Chat and Responses only.
 - Complex tool-call rescue, inline tool-call parsing, and schema repair beyond Gemini unsupported-key stripping are deferred until dogfood produces specific failures.
 - Dynamic catalog sync is deferred; the MVP uses built-in seed providers plus visible catalog source/version reporting.
+
+## Dogfood Findings
+
+- GitHub Models `gpt-4o-mini` and `gpt-4o` both rejected Codex CLI's startup Responses request with `413 tokens_limit_reached` and an effective `8000 tokens` maximum. The request included long system/developer instructions plus local tool schemas, so it is not enough for full Codex agent dogfood in this environment.
+- Kilo anonymous successfully accepts the same large streamed request, but free-router upstream models may emit text-form tool calls or reasoning-only chunks instead of Responses-compatible tool events. SteadyRoute now records these as stream/tool compatibility evidence and classifies malformed stream tool calls rather than treating them as completed coding-agent work.
+- With the currently available credentials, the real provider matrix is GitHub Models plus Kilo anonymous. The strict acceptance gate still requires a second named provider among OpenRouter, Gemini, Groq, and GitHub Models. OpenRouter currently returns `401 User not found`; Gemini and Groq keys are absent.
