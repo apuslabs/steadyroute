@@ -1,0 +1,47 @@
+{
+  "name": "steadyroute",
+  "version": "0.1.0",
+  "description": "Self-healing free LLM router.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "steadyroute": "dist/cli.js"
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "start": "tsx src/cli.ts start",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apuslabs/steadyroute.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/apuslabs/steadyroute/issues"
+  },
+  "homepage": "https://github.com/apuslabs/steadyroute#readme",
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "commander": "^15.0.0",
+    "fastify": "^5.9.0",
+    "nanoid": "^5.1.16",
+    "open": "^11.0.0",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.1.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.9"
+  }
+}
