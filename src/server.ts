@@ -2,6 +2,7 @@ import Fastify from "fastify";
 import type Database from "better-sqlite3";
 import { nanoid } from "nanoid";
 import { loadConfig } from "./config.js";
+import { getProviderKey } from "./db.js";
 import { PROVIDERS, resolveProviderEnvKey } from "./providers.js";
 import { routeRequest } from "./router.js";
 
@@ -40,7 +41,7 @@ export function buildServer(options: ServerOptions) {
           capabilities: model.capabilities,
           context_window: model.contextWindow,
           free_tier: model.freeTier,
-          key_present: resolveProviderEnvKey(provider).present
+          key_present: providerKeyPresent(options.db, provider.id)
         }
       })))
     ]
@@ -96,4 +97,11 @@ function normalizeHeaders(headers: Record<string, unknown>): Record<string, stri
     if (typeof value === "string" || Array.isArray(value)) out[key.toLowerCase()] = value as string | string[];
   }
   return out;
+}
+
+function providerKeyPresent(db: Database.Database, providerId: string): boolean {
+  const provider = PROVIDERS.find((candidate) => candidate.id === providerId);
+  if (!provider) return false;
+  if (resolveProviderEnvKey(provider).present) return true;
+  return Boolean(getProviderKey(db, provider.id, "default"));
 }
