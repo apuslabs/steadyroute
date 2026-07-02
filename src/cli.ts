@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
 import { loadConfig } from "./config.js";
@@ -10,8 +11,9 @@ import { PROVIDERS } from "./providers.js";
 import { readRuntimeStatus, removeRuntimeState, writeRuntimeState } from "./runtime.js";
 import { buildServer } from "./server.js";
 
+const packageJson = createRequire(import.meta.url)("../package.json") as { version?: string };
 const program = new Command();
-program.name("steadyroute").description("Local-first free LLM router").version("0.1.0");
+program.name("steadyroute").description("Local-first free LLM router").version(packageJson.version ?? "0.0.0");
 
 program
   .command("start")
