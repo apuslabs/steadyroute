@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chatToResponsesResponse, createResponseStreamState, responsesToChat, responseStreamEventsFromChatChunk } from "../src/protocol.js";
+import { chatToResponsesResponse, completeResponseStream, createResponseStreamState, responsesToChat, responseStreamEventsFromChatChunk } from "../src/protocol.js";
 
 describe("Responses translation", () => {
   it("converts string input to chat messages", () => {
@@ -47,6 +47,68 @@ describe("Responses translation", () => {
     ]);
   });
 
+  it("wraps malformed Responses function-call history in valid Chat tool arguments", () => {
+    const chat = responsesToChat({
+      model: "steadyroute:auto",
+      input: [
+        {
+          type: "function_call",
+          call_id: "call_bad",
+          name: "exec_command",
+          arguments: "{\"cmd\":\"cat << 'EOF'\"}}"
+        },
+        { type: "function_call_output", call_id: "call_bad", output: "failed to parse function arguments" }
+      ]
+    });
+
+    const toolCall = chat.messages?.[0]?.tool_calls as Array<Record<string, unknown>>;
+    const fn = toolCall[0].function as Record<string, unknown>;
+    expect(JSON.parse(String(fn.arguments))).toEqual({
+      _steadyroute_malformed_arguments: "{\"cmd\":\"cat << 'EOF'\"}}"
+    });
+  });
+
+  it("normalizes Responses-style function tools to Chat Completions tools", () => {
+    const chat = responsesToChat({
+      model: "steadyroute:auto",
+      input: "inspect",
+      tools: [
+        {
+          type: "function",
+          name: "exec_command",
+          description: "Runs a command.",
+          strict: false,
+          parameters: {
+            type: "object",
+            properties: { cmd: { type: "string" } },
+            required: ["cmd"],
+            additionalProperties: false
+          }
+        },
+        { type: "web_search", external_web_access: false }
+      ],
+      tool_choice: { type: "function", name: "exec_command" }
+    });
+
+    expect(chat.tools).toEqual([
+      {
+        type: "function",
+        function: {
+          name: "exec_command",
+          description: "Runs a command.",
+          strict: false,
+          parameters: {
+            type: "object",
+            properties: { cmd: { type: "string" } },
+            required: ["cmd"],
+            additionalProperties: false
+          }
+        }
+      }
+    ]);
+    expect(chat.tool_choice).toEqual({ type: "function", function: { name: "exec_command" } });
+  });
+
   it("translates streamed chat tool deltas into Responses function-call events", () => {
     const state = createResponseStreamState();
     const first = responseStreamEventsFromChatChunk({
@@ -65,6 +127,59 @@ describe("Responses translation", () => {
     expect(first.map((event) => event.type)).toContain("response.output_item.added");
     expect(args).toContainEqual(expect.objectContaining({ type: "response.function_call_arguments.delta", delta: "{\"cmd\":\"ls\"}" }));
     expect(done).toContainEqual(expect.objectContaining({ type: "response.function_call_arguments.done", arguments: "{\"cmd\":\"ls\"}" }));
-    expect(done).toContainEqual(expect.objectContaining({ type: "response.completed" }));
+    expect(done).toContainEqual(expect.objectContaining({
+      type: "response.completed",
+      id: "chatcmpl_tools",
+      response: expect.objectContaining({ id: "chatcmpl_tools" })
+    }));
+    expect(completeResponseStream(state)).toEqual([]);
+  });
+
+  it("synthesizes one completed event with output when a stream ends without DONE", () => {
+    const state = createResponseStreamState();
+    responseStreamEventsFromChatChunk({
+      id: "chatcmpl_tools",
+      choices: [{ delta: { tool_calls: [{ index: 0, id: "call_1", type: "function", function: { name: "exec_command", arguments: "" } }] }, finish_reason: null }]
+    }, state);
+    responseStreamEventsFromChatChunk({
+      id: "chatcmpl_tools",
+      choices: [{ delta: { tool_calls: [{ index: 0, function: { arguments: "{\"cmd\":\"ls\"}" } }] }, finish_reason: null }]
+    }, state);
+
+    const done = completeResponseStream(state);
+    expect(done.filter((event) => event.type === "response.completed")).toHaveLength(1);
+    expect(done).toContainEqual(expect.objectContaining({ type: "response.function_call_arguments.done", arguments: "{\"cmd\":\"ls\"}" }));
+    expect(done.at(-1)).toEqual(expect.objectContaining({
+      type: "response.completed",
+      response: expect.objectContaining({
+        output: [expect.objectContaining({ type: "function_call", arguments: "{\"cmd\":\"ls\"}" })]
+      })
+    }));
+    expect(completeResponseStream(state)).toEqual([]);
+  });
+
+  it("includes completed streamed text in Responses output items", () => {
+    const state = createResponseStreamState();
+    responseStreamEventsFromChatChunk({
+      id: "chatcmpl_text",
+      choices: [{ delta: { content: "done" }, finish_reason: null }]
+    }, state);
+    const done = responseStreamEventsFromChatChunk({
+      id: "chatcmpl_text",
+      choices: [{ delta: {}, finish_reason: "stop" }]
+    }, state);
+
+    expect(done).toContainEqual(expect.objectContaining({
+      type: "response.output_item.done",
+      item: expect.objectContaining({
+        content: [{ type: "output_text", text: "done" }]
+      })
+    }));
+    expect(done).toContainEqual(expect.objectContaining({
+      type: "response.completed",
+      response: expect.objectContaining({
+        output: [expect.objectContaining({ content: [{ type: "output_text", text: "done" }] })]
+      })
+    }));
   });
 });

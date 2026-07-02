@@ -22,6 +22,36 @@ function model(id: string, partial: Partial<ProviderModel> = {}): ProviderModel 
 
 export const PROVIDERS: ProviderDefinition[] = [
   {
+    id: "opencode_free",
+    displayName: "OpenCode Free",
+    apiShape: "openai-compatible",
+    baseUrl: "https://opencode.ai/zen/v1/chat/completions",
+    auth: { method: "anonymous", env: [], required: false, humanAction: null },
+    defaultHeaders: { "x-opencode-client": "desktop" },
+    models: [
+      model("big-pickle", {
+        label: "OpenCode Free Big Pickle",
+        contextWindow: 200000,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "No-auth OpenCode Free route verified with a live chat completion; upstream capacity and policy are provider-controlled." }
+      }),
+      model("deepseek-v4-flash-free", {
+        label: "OpenCode Free DeepSeek V4 Flash",
+        contextWindow: 200000,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "No-auth OpenCode Free route discovered from 9Router and verified with a live chat completion." }
+      }),
+      model("mimo-v2.5-free", {
+        label: "OpenCode Free MiMo V2.5",
+        contextWindow: 200000,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "No-auth OpenCode Free route discovered from OpenCode's public model list." }
+      })
+    ],
+    catalogSource: "9Router OpenCode Free registry + live no-auth probe",
+    notes: ["Uses the public OpenCode Free endpoint with provider-required public bearer marker, not a user API key."]
+  },
+  {
     id: "github_models",
     displayName: "GitHub Models",
     apiShape: "openai-compatible",
@@ -51,6 +81,12 @@ export const PROVIDERS: ProviderDefinition[] = [
     auth: { method: "anonymous", env: [], required: false, humanAction: null },
     defaultHeaders: { "x-kilocode-editorname": "SteadyRoute" },
     models: [
+      model("kilo-auto/free", {
+        label: "Kilo Auto Free",
+        contextWindow: 256000,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "Keyless Kilo free route verified locally; Kilo reports zero-cost free model pricing and may train on prompts." }
+      }),
       model("openrouter/free", {
         label: "Kilo anonymous free router",
         contextWindow: 200000,
@@ -78,6 +114,41 @@ export const PROVIDERS: ProviderDefinition[] = [
         contextWindow: 256000,
         capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
         freeTier: { status: "known", notes: "Free model discovered from OpenRouter /models." }
+      }),
+      model("qwen/qwen3-coder:free", {
+        contextWindow: 1048576,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "Free coding model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
+      }),
+      model("qwen/qwen3-next-80b-a3b-instruct:free", {
+        contextWindow: 262144,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "known" },
+        freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
+      }),
+      model("meta-llama/llama-3.3-70b-instruct:free", {
+        contextWindow: 131072,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
+      }),
+      model("openai/gpt-oss-120b:free", {
+        contextWindow: 131072,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
+      }),
+      model("openai/gpt-oss-20b:free", {
+        contextWindow: 131072,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
+      }),
+      model("google/gemma-4-31b-it:free", {
+        contextWindow: 131072,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
+      }),
+      model("nvidia/nemotron-3-super-120b-a12b:free", {
+        contextWindow: 131072,
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
+        freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
       })
     ],
     catalogSource: "OpenRouter /models + reference research",

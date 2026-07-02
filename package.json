@@ -7,6 +7,13 @@
   "bin": {
     "steadyroute": "dist/cli.js"
   },
+  "files": [
+    "dist",
+    "docs",
+    "README.md",
+    "LICENSE",
+    "SECURITY.md"
+  ],
   "directories": {
     "doc": "docs"
   },
@@ -22,7 +29,13 @@
     "type": "git",
     "url": "git+https://github.com/apuslabs/steadyroute.git"
   },
-  "keywords": [],
+  "keywords": [
+    "llm",
+    "router",
+    "openai-compatible",
+    "free-models",
+    "codex"
+  ],
   "author": "",
   "license": "MIT",
   "bugs": {

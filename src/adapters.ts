@@ -1,5 +1,5 @@
 import { classifyProviderFailure, safeExcerpt, SteadyRouteError } from "./errors.js";
-import { createResponseStreamState, responseStreamEventsFromChatChunk } from "./protocol.js";
+import { completeResponseStream, createResponseStreamState, responseStreamEventsFromChatChunk } from "./protocol.js";
 import { estimateUsageFromText, unknownUsage, usageFromOpenAiBody } from "./usage.js";
 import type { ChatRequestBody, KeyMaterial, ProviderAttemptResult, ProviderDefinition, ProviderModel, StreamMetadata } from "./types.js";
 
@@ -186,10 +186,12 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
             }
           }
         }
-        if (!metadata.done_seen && responseMode === "responses") {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "response.completed", response: { status: "completed" } })}\n\n`));
-        }
-        if (responseMode === "chat" && !metadata.done_seen) controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        if (responseMode === "responses") {
+          const responseId = responseState.responseId ?? (typeof lastChunk?.id === "string" ? lastChunk.id : `resp_${Date.now()}`);
+          for (const responseEvent of completeResponseStream(responseState, responseId)) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseEvent)}\n\n`));
+          }
+        } else if (!metadata.done_seen) controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         metadata.done_seen = true;
         if (metadata.finish_reason === "tool_calls" && !sawOpenAiToolCalls) {
           metadata.interrupted = true;
@@ -266,7 +268,12 @@ function wrapGeminiSseStream(body: ReadableStream<Uint8Array>, model: string, he
         metadata.done_seen = true;
         metadata.finish_reason = metadata.finish_reason ?? "stop";
         if (responseMode === "chat") controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-        else controller.enqueue(encoder.encode(`data: ${JSON.stringify({ type: "response.completed", response: { status: "completed" } })}\n\n`));
+        else {
+          const responseId = responseState.responseId ?? `resp_${Date.now()}`;
+          for (const responseEvent of completeResponseStream(responseState, responseId)) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseEvent)}\n\n`));
+          }
+        }
         controller.close();
       } catch (error) {
         metadata.interrupted = true;
@@ -300,7 +307,7 @@ function buildOpenAiBody(body: ChatRequestBody, model: string, stream: boolean):
 
 function buildHeaders(provider: ProviderDefinition, key: KeyMaterial, stream: boolean): Record<string, string> {
   const headers: Record<string, string> = { "content-type": "application/json", accept: stream ? "text/event-stream" : "application/json", ...(provider.defaultHeaders ?? {}) };
-  if (provider.auth.method === "anonymous") headers.authorization = "Bearer anonymous";
+  if (provider.auth.method === "anonymous") headers.authorization = provider.id === "opencode_free" ? "Bearer public" : "Bearer anonymous";
   else if (key.value) headers.authorization = `Bearer ${key.value}`;
   return headers;
 }

@@ -63,4 +63,40 @@ describe("router fallback", () => {
     expect(explanation).toContain("fallbackable: trying next candidate");
     expect(explanation).toContain("openrouter / openrouter/free");
   });
+
+  it("uses a no-key free provider before keyed providers by default", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-free-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "");
+    vi.stubEnv("GITHUB_MODELS_TOKEN", "");
+    const db = openDb();
+    let observedAuth = "";
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      observedAuth = init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers) ? String((init.headers as Record<string, string>).authorization ?? "") : "";
+      return new Response(JSON.stringify({
+        id: "chatcmpl_free",
+        model: "deepseek-v4-flash",
+        choices: [{ message: { role: "assistant", content: "free ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_free_default",
+      db,
+      endpoint: "/v1/chat/completions",
+      method: "POST",
+      body: { model: "steadyroute:auto", messages: [{ role: "user", content: "hi" }] },
+      headers: {},
+      traceFullBodies: true,
+      providerOrder: ["opencode_free", "kilo", "openrouter", "github_models"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(observedAuth).toBe("Bearer public");
+    const explanation = explainRequest(db, "req_free_default");
+    expect(explanation).toContain("Final provider/model: opencode_free / big-pickle");
+    expect(explanation).toContain("key=anonymous");
+  });
 });

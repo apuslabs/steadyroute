@@ -34,19 +34,19 @@ SteadyRoute focuses on making that fragility visible and manageable:
 
 ## Install
 
-macOS and Linux:
+Install from npm:
 
 ```bash
-curl -fsSL https://steadyroute.apuslabs.dev/install.sh | sh
+npm install -g steadyroute
 ```
 
-Windows PowerShell:
+Or run from a local checkout:
 
-```powershell
-iwr https://steadyroute.apuslabs.dev/install.ps1 -useb | iex
+```bash
+npm install
+npm run build
+npm install -g .
 ```
-
-The installer should make the `steadyroute` command available on your PATH.
 
 ## Quick Start
 
@@ -62,28 +62,36 @@ Run diagnostics:
 steadyroute doctor
 ```
 
-Add a provider key:
+List available models:
 
 ```bash
-steadyroute keys add
+steadyroute models
 ```
 
-List available integrations:
+Send a request through the default free/no-key route:
 
 ```bash
-steadyroute integrations list
+curl -sS -D /tmp/steadyroute-headers.txt \
+  http://127.0.0.1:3001/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer steadyroute-local' \
+  -d '{
+    "model": "steadyroute:auto",
+    "messages": [{"role": "user", "content": "Reply with one short sentence."}]
+  }'
 ```
 
-Apply a local integration:
+Explain the request:
 
 ```bash
-steadyroute integrations apply codex
+REQUEST_ID="$(awk 'tolower($1)=="x-steadyroute-request-id:" {print $2}' /tmp/steadyroute-headers.txt | tr -d '\r')"
+steadyroute explain "$REQUEST_ID"
 ```
 
-Explain a failed or surprising request:
+Add an optional provider key only when you want keyed providers:
 
 ```bash
-steadyroute explain <request-id>
+printf '%s' "$OPENROUTER_API_KEY" | steadyroute keys add openrouter
 ```
 
 ## Local Endpoint
@@ -112,6 +120,19 @@ Checks include:
 - Tool-call and JSON schema compatibility.
 
 SteadyRoute records request traces locally so you can inspect how a route was selected, which providers were skipped, which fallbacks were attempted, and what final error classification was returned.
+
+## Default Free Routes
+
+SteadyRoute's default route order starts with no-login/free routes before
+keyed providers:
+
+- OpenCode Free (`opencode_free`)
+- Kilo anonymous free route (`kilo`)
+- Optional keyed providers such as OpenRouter, GitHub Models, Groq, and Gemini
+
+Free-route availability is upstream-controlled and may change without notice.
+Do not send sensitive prompts to anonymous/free routes unless you have reviewed
+the upstream provider's policy.
 
 ## Integrations
 

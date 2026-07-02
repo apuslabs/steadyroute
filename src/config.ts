@@ -7,7 +7,7 @@ const ConfigSchema = z.object({
   port: z.number().int().positive().default(3001),
   traceFullBodies: z.boolean().default(true),
   catalogPath: z.string().nullable().default("/Users/jax/Desktop/Apus/open-free-llm-catalog"),
-  providerOrder: z.array(z.string()).default(["github_models", "kilo", "openrouter", "groq", "gemini"])
+  providerOrder: z.array(z.string()).default(["opencode_free", "kilo", "openrouter", "github_models", "groq", "gemini"])
 });
 
 export type SteadyRouteConfig = z.infer<typeof ConfigSchema>;
