@@ -236,6 +236,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
 function noCandidateErrorClass(skips: unknown[]): ErrorClass {
   const reasons = skips.map((skip) => String((skip as { reason?: unknown }).reason ?? ""));
   if (reasons.some((reason) => reason.includes("tool_unsupported"))) return "tool_unsupported";
+  if (reasons.some((reason) => reason.includes("schema_rejected"))) return "schema_rejected";
   if (reasons.some((reason) => reason.includes("context_too_large"))) return "context_too_large";
   if (reasons.some((reason) => /api key|provider key|github cli|token|log in/i.test(reason))) return "auth_failed";
   return "request_invalid";
@@ -251,6 +252,7 @@ function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; p
   const exact = parseExactModel(args.modelRequested);
   const ordered = orderProviders(args.providerOrder);
   const toolsPresent = Array.isArray(args.body.tools) ? args.body.tools.length > 0 : Boolean(args.body.tools);
+  const structuredOutputPresent = hasStructuredOutput(args.body);
   const stream = args.body.stream === true;
   const estimatedTokens = estimateRequestedTokens(args.body);
 
@@ -283,6 +285,10 @@ function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; p
       }
       if (matchesModelList(args.routeHeaders.modelDenylist, provider.id, model.id)) {
         skips.push({ provider: provider.id, model: model.id, reason: "model denylisted" });
+        continue;
+      }
+      if (structuredOutputPresent && model.capabilities.jsonMode === "unsupported") {
+        skips.push({ provider: provider.id, model: model.id, reason: "schema_rejected by catalog: structured output unsupported" });
         continue;
       }
       if (stream && model.capabilities.streaming === "unsupported") {
@@ -387,11 +393,17 @@ function orderCandidates(candidates: RouteCandidate[], args: { body: ChatRequest
   if (exact || args.routeHeaders.providerAllowlist.length > 0 || args.routeHeaders.modelAllowlist.length > 0) return candidates;
   if (args.routeHeaders.routePolicy && args.routeHeaders.routePolicy !== "stable-coding-agent") return candidates;
 
+  const structuredOutput = hasStructuredOutput(args.body);
   const codingRequest = args.routeHeaders.routePolicy === "stable-coding-agent" || args.protocol === "responses" || hasRequestTools(args.body);
-  if (!codingRequest) return candidates;
+  if (!codingRequest && !structuredOutput) return candidates;
 
   const providerRank = new Map(policyOrder({ ...args.routeHeaders, routePolicy: "stable-coding-agent" }, args.providerOrder).map((providerId, index) => [providerId, index]));
   return [...candidates].sort((a, b) => {
+    if (structuredOutput) {
+      const aj = jsonModeRank(a.model.capabilities.jsonMode);
+      const bj = jsonModeRank(b.model.capabilities.jsonMode);
+      if (aj !== bj) return aj - bj;
+    }
     const ap = a.model.priority?.coding ?? 100;
     const bp = b.model.priority?.coding ?? 100;
     if (ap !== bp) return ap - bp;
@@ -426,6 +438,30 @@ function candidateSummary(candidate: RouteCandidate): Record<string, unknown> {
 
 function hasRequestTools(body: ChatRequestBody): boolean {
   return Array.isArray(body.tools) ? body.tools.length > 0 : Boolean(body.tools);
+}
+
+function hasStructuredOutput(body: ChatRequestBody): boolean {
+  const responseFormat = body.response_format;
+  if (responseFormat && typeof responseFormat === "object") {
+    const type = (responseFormat as Record<string, unknown>).type;
+    if (type === "json_object" || type === "json_schema") return true;
+  }
+  return false;
+}
+
+function jsonModeRank(state: string): number {
+  switch (state) {
+    case "known":
+      return 0;
+    case "estimated":
+      return 1;
+    case "community-reported":
+      return 2;
+    case "unknown":
+      return 3;
+    default:
+      return 4;
+  }
 }
 
 function matchesModelList(list: string[], providerId: string, modelId: string): boolean {

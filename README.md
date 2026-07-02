@@ -100,6 +100,10 @@ curl -H 'x-steadyroute-route-policy: stable-coding-agent' ...
 # Restrict routing to a provider or model set.
 curl -H 'x-steadyroute-provider-allowlist: openrouter' \
   -H 'x-steadyroute-model-denylist: qwen/qwen3-coder:free' ...
+
+# Structured output requests prefer cataloged JSON-mode-capable models.
+curl -H 'content-type: application/json' \
+  -d '{"model":"steadyroute:auto","messages":[{"role":"user","content":"Return JSON."}],"response_format":{"type":"json_object"}}' ...
 ```
 
 Explain the request:

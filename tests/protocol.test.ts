@@ -140,6 +140,40 @@ describe("Responses translation", () => {
     expect(chat.tool_choice).toEqual({ type: "function", function: { name: "exec_command" } });
   });
 
+  it("preserves Responses text json_schema format as Chat response_format", () => {
+    const chat = responsesToChat({
+      model: "steadyroute:auto",
+      input: "return json",
+      text: {
+        format: {
+          type: "json_schema",
+          name: "launch_item",
+          strict: true,
+          schema: {
+            type: "object",
+            properties: { name: { type: "string" } },
+            required: ["name"],
+            additionalProperties: false
+          }
+        }
+      }
+    });
+
+    expect(chat.response_format).toEqual({
+      type: "json_schema",
+      json_schema: {
+        name: "launch_item",
+        strict: true,
+        schema: {
+          type: "object",
+          properties: { name: { type: "string" } },
+          required: ["name"],
+          additionalProperties: false
+        }
+      }
+    });
+  });
+
   it("translates streamed chat tool deltas into Responses function-call events", () => {
     const state = createResponseStreamState();
     const first = responseStreamEventsFromChatChunk({

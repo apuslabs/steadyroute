@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.15 - 2026-07-02
+
+- Added structured-output routing awareness for Chat `response_format` and Responses `text.format`, including JSON-mode candidate preference and `schema_rejected` skips for catalog-unsupported models.
+
 ## 0.1.14 - 2026-07-02
 
 - Added model-level allowlist and denylist routing headers with explainable skipped-candidate evidence.

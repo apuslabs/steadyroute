@@ -34,19 +34,19 @@ export const PROVIDERS: ProviderDefinition[] = [
       model("big-pickle", {
         label: "OpenCode Free Big Pickle",
         contextWindow: 200000,
-        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unknown" },
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unsupported" },
         freeTier: { status: "known", notes: "No-auth OpenCode Free route verified with a live chat completion; upstream capacity and policy are provider-controlled." }
       }),
       model("deepseek-v4-flash-free", {
         label: "OpenCode Free DeepSeek V4 Flash",
         contextWindow: 200000,
-        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unknown" },
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unsupported" },
         freeTier: { status: "known", notes: "No-auth OpenCode Free route discovered from 9Router and verified with a live chat completion." }
       }),
       model("mimo-v2.5-free", {
         label: "OpenCode Free MiMo V2.5",
         contextWindow: 200000,
-        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unknown" },
+        capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "unknown", jsonMode: "unsupported" },
         freeTier: { status: "known", notes: "No-auth OpenCode Free route discovered from OpenCode's public model list." }
       })
     ],

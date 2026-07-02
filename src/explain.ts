@@ -30,6 +30,7 @@ export function explainRequest(db: Database.Database, requestId: string): string
   const toolNames = extractToolNames(requestBody.tools);
   lines.push(`- stream: ${requestBody.stream === true}`);
   lines.push(`- tools_present: ${toolNames.length > 0}`);
+  lines.push(`- structured_output: ${formatStructuredOutput(requestBody.response_format ?? responseFormatFromResponsesText(requestBody.text))}`);
   if (toolNames.length > 0) lines.push(`- tool_names: ${toolNames.join(", ")}`);
   const responseBody = parseJsonObject(request.response_body_json);
   const responseToolCalls = extractResponseToolCalls(responseBody);
@@ -40,7 +41,7 @@ export function explainRequest(db: Database.Database, requestId: string): string
   for (const candidate of parseJsonArray(request.candidates_json)) {
     const c = candidate as Record<string, unknown>;
     const capabilities = c.capabilities && typeof c.capabilities === "object" ? c.capabilities as Record<string, unknown> : {};
-    lines.push(`- ${c.provider}/${c.model} key=${c.key_alias ?? "unknown"} exact=${c.exact ? "yes" : "no"} tool_calls=${capabilities.toolCalls ?? "unknown"}`);
+    lines.push(`- ${c.provider}/${c.model} key=${c.key_alias ?? "unknown"} exact=${c.exact ? "yes" : "no"} tool_calls=${capabilities.toolCalls ?? "unknown"} json_mode=${capabilities.jsonMode ?? "unknown"}`);
   }
   const skips = parseJsonArray(request.skips_json);
   if (skips.length > 0) {
@@ -127,6 +128,31 @@ function extractToolNames(tools: unknown): string[] {
     if (name) names.push(name);
   }
   return names;
+}
+
+function formatStructuredOutput(responseFormat: unknown): string {
+  if (!responseFormat || typeof responseFormat !== "object") return "none";
+  const record = responseFormat as Record<string, unknown>;
+  const type = typeof record.type === "string" ? record.type : "unknown";
+  if (type !== "json_schema") return type;
+  const schema = record.json_schema && typeof record.json_schema === "object" ? record.json_schema as Record<string, unknown> : {};
+  const name = typeof schema.name === "string" ? schema.name : "unnamed";
+  return `json_schema:${name}`;
+}
+
+function responseFormatFromResponsesText(text: unknown): unknown {
+  if (!text || typeof text !== "object") return null;
+  const format = (text as Record<string, unknown>).format;
+  if (!format || typeof format !== "object") return null;
+  const record = format as Record<string, unknown>;
+  if (record.type === "json_schema") {
+    return {
+      type: "json_schema",
+      json_schema: { name: typeof record.name === "string" ? record.name : "response" }
+    };
+  }
+  if (record.type === "json_object") return { type: "json_object" };
+  return null;
 }
 
 function extractResponseToolCalls(body: Record<string, unknown>): string[] {

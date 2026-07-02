@@ -94,6 +94,7 @@ describe("SQLite ledger", () => {
       requestBody: {
         model: "steadyroute:auto",
         messages: [{ role: "user", content: "use tool" }],
+        response_format: { type: "json_object" },
         tools: [{ type: "function", function: { name: "report_package", parameters: { type: "object" } } }]
       },
       catalogSource: "test",
@@ -140,6 +141,7 @@ describe("SQLite ledger", () => {
 
     const explanation = explainRequest(db, "req_tools");
     expect(explanation).toContain("tools_present: true");
+    expect(explanation).toContain("structured_output: json_object");
     expect(explanation).toContain("tool_names: report_package");
     expect(explanation).toContain("response_tool_calls: report_package");
     expect(explanation).toContain("tool_calls=known");

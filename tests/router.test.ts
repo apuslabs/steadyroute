@@ -290,6 +290,138 @@ describe("router fallback", () => {
     expect(explanation).toContain("openrouter/qwen/qwen3-coder:free: model denylisted");
   });
 
+  it("prefers JSON-mode-capable models for structured output requests", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-json-mode-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    const db = openDb();
+    let upstreamModel = "";
+    let upstreamResponseFormat: unknown = null;
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const upstreamBody = JSON.parse(String(init?.body ?? "{}")) as { model?: string; response_format?: unknown };
+      upstreamModel = upstreamBody.model ?? "";
+      upstreamResponseFormat = upstreamBody.response_format;
+      return new Response(JSON.stringify({
+        id: "chatcmpl_json_mode",
+        model: upstreamModel,
+        choices: [{ message: { role: "assistant", content: "{\"ok\":true}" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_json_mode",
+      db,
+      endpoint: "/v1/chat/completions",
+      method: "POST",
+      body: {
+        model: "steadyroute:auto",
+        messages: [{ role: "user", content: "return json" }],
+        response_format: { type: "json_object" }
+      },
+      headers: {},
+      traceFullBodies: true,
+      providerOrder: ["opencode_free", "openrouter"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(upstreamModel).toBe("qwen/qwen3-next-80b-a3b-instruct:free");
+    expect(upstreamResponseFormat).toEqual({ type: "json_object" });
+    const explanation = explainRequest(db, "req_json_mode");
+    expect(explanation).toContain("Final provider/model: openrouter / qwen/qwen3-next-80b-a3b-instruct:free");
+    expect(explanation).toContain("structured_output: json_object");
+    expect(explanation).toContain("json_mode=known");
+  });
+
+  it("preserves Responses structured text format when selecting a JSON-mode model", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-responses-json-mode-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    const db = openDb();
+    let upstreamModel = "";
+    let upstreamResponseFormat: unknown = null;
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const upstreamBody = JSON.parse(String(init?.body ?? "{}")) as { model?: string; response_format?: unknown };
+      upstreamModel = upstreamBody.model ?? "";
+      upstreamResponseFormat = upstreamBody.response_format;
+      return new Response(JSON.stringify({
+        id: "chatcmpl_responses_json_mode",
+        model: upstreamModel,
+        choices: [{ message: { role: "assistant", content: "{\"name\":\"LaunchBoard\"}" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_responses_json_mode",
+      db,
+      endpoint: "/v1/responses",
+      method: "POST",
+      body: {
+        model: "steadyroute:auto",
+        input: "return json",
+        text: {
+          format: {
+            type: "json_schema",
+            name: "launch_item",
+            schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"], additionalProperties: false },
+            strict: true
+          }
+        }
+      },
+      headers: {},
+      traceFullBodies: true,
+      providerOrder: ["opencode_free", "openrouter"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(upstreamModel).toBe("qwen/qwen3-next-80b-a3b-instruct:free");
+    expect(upstreamResponseFormat).toEqual({
+      type: "json_schema",
+      json_schema: {
+        name: "launch_item",
+        schema: { type: "object", properties: { name: { type: "string" } }, required: ["name"], additionalProperties: false },
+        strict: true
+      }
+    });
+    const explanation = explainRequest(db, "req_responses_json_mode");
+    expect(explanation).toContain("Final provider/model: openrouter / qwen/qwen3-next-80b-a3b-instruct:free");
+    expect(explanation).toContain("structured_output: json_schema:launch_item");
+  });
+
+  it("classifies structured output requests as schema_rejected when only unsupported catalog models are allowed", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-json-unsupported-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    const db = openDb();
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_json_unsupported",
+      db,
+      endpoint: "/v1/chat/completions",
+      method: "POST",
+      body: {
+        model: "steadyroute:auto",
+        messages: [{ role: "user", content: "return json" }],
+        response_format: { type: "json_object" }
+      },
+      headers: { "x-steadyroute-provider-allowlist": "opencode_free" },
+      traceFullBodies: true,
+      providerOrder: ["opencode_free"]
+    });
+
+    expect(result.response.status).toBe(400);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    const body = await result.response.json() as { error?: { code?: string } };
+    expect(body.error?.code).toBe("schema_rejected");
+    const explanation = explainRequest(db, "req_json_unsupported");
+    expect(explanation).toContain("Final error class: schema_rejected");
+    expect(explanation).toContain("schema_rejected by catalog: structured output unsupported");
+  });
+
   it("returns context_too_large when an exact model cannot fit the estimated request", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-context-limit-test-"));
     homes.push(home);

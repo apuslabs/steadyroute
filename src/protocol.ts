@@ -75,6 +75,10 @@ export function responsesToChat(body: Record<string, unknown>): ChatRequestBody 
   if (typeof body.max_output_tokens === "number" && typeof chat.max_tokens !== "number") {
     chat.max_tokens = body.max_output_tokens;
   }
+  const responseFormat = responseFormatFromResponsesText(body.text);
+  if (responseFormat && typeof chat.response_format === "undefined") {
+    chat.response_format = responseFormat;
+  }
   if (!chat.tools) delete chat.tools;
   if (!chat.tool_choice) delete chat.tool_choice;
   return chat;
@@ -232,6 +236,25 @@ function normalizeResponsesToolChoice(toolChoice: unknown): unknown {
   if (obj.function && typeof obj.function === "object") return toolChoice;
   if (typeof obj.name !== "string" || obj.name.length === 0) return toolChoice;
   return { type: "function", function: { name: obj.name } };
+}
+
+function responseFormatFromResponsesText(text: unknown): unknown {
+  if (!text || typeof text !== "object") return null;
+  const format = (text as Record<string, unknown>).format;
+  if (!format || typeof format !== "object") return null;
+  const record = format as Record<string, unknown>;
+  if (record.type === "json_schema") {
+    return {
+      type: "json_schema",
+      json_schema: {
+        name: typeof record.name === "string" ? record.name : "response",
+        schema: record.schema && typeof record.schema === "object" ? record.schema : { type: "object" },
+        strict: typeof record.strict === "boolean" ? record.strict : undefined
+      }
+    };
+  }
+  if (record.type === "json_object") return { type: "json_object" };
+  return null;
 }
 
 function normalizeToolArguments(args: unknown): string {
