@@ -28,5 +28,7 @@ describe("doctor", () => {
     expect(report.server.runtime.state?.port).toBe(3011);
     expect(formatted).toContain("Server config: 127.0.0.1:3001 local_only=true");
     expect(formatted).toContain(`Running server: 127.0.0.1:3011 pid=${process.pid} local_only=true`);
+    expect(formatted).toContain("- kilo: status=verified");
+    expect(formatted).toContain("evidence:");
   });
 });

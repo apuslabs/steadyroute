@@ -78,18 +78,20 @@ program
   .option("--json", "Emit JSON")
   .action((options) => {
     const models = [
-      { id: "steadyroute:auto", provider: "steadyroute", model: "auto" },
+      { id: "steadyroute:auto", provider: "steadyroute", provider_status: "verified", model: "auto", evidence: ["Local route policy alias; provider status is decided per selected upstream candidate."] },
       ...PROVIDERS.flatMap((provider) => provider.models.map((model) => ({
         id: `steadyroute:${provider.id}/${model.id}`,
         provider: provider.id,
+        provider_status: provider.status,
         model: model.id,
         capabilities: model.capabilities,
         context_window: model.contextWindow,
-        free_tier: model.freeTier
+        free_tier: model.freeTier,
+        evidence: provider.evidence
       })))
     ];
     if (options.json) console.log(JSON.stringify(models, null, 2));
-    else for (const model of models) console.log(`${model.id} provider=${model.provider}`);
+    else for (const model of models) console.log(`${model.id} provider=${model.provider} status=${model.provider_status ?? "n/a"}`);
   });
 
 const keys = program.command("keys").description("Manage local provider keys");

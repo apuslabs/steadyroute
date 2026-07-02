@@ -19,6 +19,7 @@ export type ErrorClass =
 export type EvidenceSource = "provider_reported" | "observed" | "estimated" | "unknown" | "stale";
 
 export type CapabilityState = "known" | "estimated" | "unknown" | "community-reported" | "unsupported";
+export type ProviderStatus = "verified" | "configured" | "catalog-only" | "broken" | "deprecated";
 
 export interface ErrorBehavior {
   retryable: boolean;
@@ -47,6 +48,7 @@ export interface ProviderModel {
 export interface ProviderDefinition {
   id: string;
   displayName: string;
+  status: ProviderStatus;
   apiShape: "openai-compatible" | "gemini" | "unknown";
   baseUrl: string;
   auth: {
@@ -58,6 +60,7 @@ export interface ProviderDefinition {
   defaultHeaders?: Record<string, string>;
   models: ProviderModel[];
   catalogSource: string;
+  evidence: string[];
   notes: string[];
 }
 

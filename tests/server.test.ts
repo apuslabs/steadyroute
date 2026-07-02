@@ -27,11 +27,13 @@ describe("server model discovery", () => {
     const response = await app.inject({ method: "GET", url: "/v1/models" });
     expect(response.statusCode).toBe(200);
     const body = response.json() as {
-      data: Array<{ id: string; steadyroute?: { provider: string; key_present: boolean } }>;
+      data: Array<{ id: string; steadyroute?: { provider: string; provider_status: string; evidence: string[]; key_present: boolean } }>;
     };
     const openrouterModels = body.data.filter((model) => model.steadyroute?.provider === "openrouter");
     expect(openrouterModels.length).toBeGreaterThan(0);
     expect(openrouterModels.every((model) => model.steadyroute?.key_present === true)).toBe(true);
+    expect(openrouterModels.every((model) => model.steadyroute?.provider_status === "broken")).toBe(true);
+    expect(openrouterModels[0]?.steadyroute?.evidence.length).toBeGreaterThan(0);
 
     await app.close();
     db.close();

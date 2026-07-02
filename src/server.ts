@@ -37,10 +37,12 @@ export function buildServer(options: ServerOptions) {
         owned_by: provider.id,
         steadyroute: {
           provider: provider.id,
+          provider_status: provider.status,
           model: model.id,
           capabilities: model.capabilities,
           context_window: model.contextWindow,
           free_tier: model.freeTier,
+          evidence: provider.evidence,
           key_present: providerKeyPresent(options.db, provider.id)
         }
       })))

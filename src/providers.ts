@@ -24,6 +24,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   {
     id: "opencode_free",
     displayName: "OpenCode Free",
+    status: "verified",
     apiShape: "openai-compatible",
     baseUrl: "https://opencode.ai/zen/v1/chat/completions",
     auth: { method: "anonymous", env: [], required: false, humanAction: null },
@@ -49,11 +50,16 @@ export const PROVIDERS: ProviderDefinition[] = [
       })
     ],
     catalogSource: "9Router OpenCode Free registry + live no-auth probe",
+    evidence: [
+      "Reference-derived keyless candidate from 9Router/OpenCode public routes.",
+      "Live no-auth chat completion succeeded during 2026-07-01 provider smoke."
+    ],
     notes: ["Uses the public OpenCode Free endpoint with provider-required public bearer marker, not a user API key."]
   },
   {
     id: "github_models",
     displayName: "GitHub Models",
+    status: "verified",
     apiShape: "openai-compatible",
     baseUrl: "https://models.inference.ai.azure.com/chat/completions",
     auth: {
@@ -71,11 +77,16 @@ export const PROVIDERS: ProviderDefinition[] = [
       })
     ],
     catalogSource: "live probe + GitHub Models OpenAI-compatible endpoint",
+    evidence: [
+      "Live SteadyRoute chat request succeeded with a local GitHub CLI token.",
+      "Provider returned rate-limit headers; Codex dogfood later hit effective token limits, so it is verified for chat but not full Codex startup in this environment."
+    ],
     notes: ["Uses local GitHub CLI token when no explicit environment token is present."]
   },
   {
     id: "kilo",
     displayName: "Kilo anonymous OpenRouter free route",
+    status: "verified",
     apiShape: "openai-compatible",
     baseUrl: "https://api.kilo.ai/api/openrouter/chat/completions",
     auth: { method: "anonymous", env: [], required: false, humanAction: null },
@@ -95,11 +106,16 @@ export const PROVIDERS: ProviderDefinition[] = [
       })
     ],
     catalogSource: "OmniRoute Kilo registry + live anonymous probe",
+    evidence: [
+      "Reference-derived keyless Kilo route from OmniRoute and 9Router-style provider research.",
+      "Published npm CLI and Codex CLI smoke reached /v1/responses through SteadyRoute with stored_keys=0 and Kilo/openrouter/free attempts."
+    ],
     notes: ["Keyless best-effort provider used for validation and fallback; not one of the named two-provider acceptance providers."]
   },
   {
     id: "openrouter",
     displayName: "OpenRouter",
+    status: "broken",
     apiShape: "openai-compatible",
     baseUrl: "https://openrouter.ai/api/v1/chat/completions",
     auth: { method: "api_key", env: ["OPENROUTER_API_KEY"], required: true, humanAction: "Create or provide an OpenRouter API key with free-model access." },
@@ -152,11 +168,16 @@ export const PROVIDERS: ProviderDefinition[] = [
       })
     ],
     catalogSource: "OpenRouter /models + reference research",
+    evidence: [
+      "OpenRouter /models worked with the exported key during 2026-07-01 research.",
+      "OpenRouter chat returned 401 User not found for the available key, so it cannot count as a healthy provider until user/account action resolves auth."
+    ],
     notes: ["Requires valid OpenRouter account key; invalid keys are classified as auth_failed."]
   },
   {
     id: "groq",
     displayName: "Groq",
+    status: "configured",
     apiShape: "openai-compatible",
     baseUrl: "https://api.groq.com/openai/v1/chat/completions",
     auth: { method: "api_key", env: ["GROQ_API_KEY"], required: true, humanAction: "Create or provide a Groq API key; no payment should be required for free-tier validation." },
@@ -173,11 +194,16 @@ export const PROVIDERS: ProviderDefinition[] = [
       })
     ],
     catalogSource: "Groq docs + reference research",
+    evidence: [
+      "Adapter and conservative OpenAI-compatible request shaping are implemented.",
+      "No GROQ_API_KEY was present during 2026-07-01 validation, so live SteadyRoute traffic is blocked on user key setup."
+    ],
     notes: ["Some Groq models reject unsupported reasoning parameters; SteadyRoute sends only conservative OpenAI chat fields."]
   },
   {
     id: "gemini",
     displayName: "Gemini API",
+    status: "configured",
     apiShape: "gemini",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
     auth: { method: "api_key", env: ["GEMINI_API_KEY", "GOOGLE_API_KEY"], required: true, humanAction: "Create or provide a Gemini API key from AI Studio; no payment should be required for free-tier validation." },
@@ -194,6 +220,10 @@ export const PROVIDERS: ProviderDefinition[] = [
       })
     ],
     catalogSource: "Gemini API docs + reference research",
+    evidence: [
+      "Gemini adapter translation is implemented for generateContent/streamGenerateContent.",
+      "No GEMINI_API_KEY/GOOGLE_API_KEY was present during 2026-07-01 validation, so live SteadyRoute traffic is blocked on user key setup."
+    ],
     notes: ["Gemini uses generateContent/streamGenerateContent and needs request translation."]
   }
 ];

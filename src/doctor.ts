@@ -29,10 +29,12 @@ export async function buildDoctorReport(db: Database.Database, probe = true): Pr
     providers.push({
       provider: provider.id,
       display_name: provider.displayName,
+      status: provider.status,
       auth_method: provider.auth.method,
       key_present: keyPresent,
       key_source: envKey.present ? envKey.source : hasStored ? "key_store" : "none",
       human_action: keyPresent ? null : provider.auth.humanAction,
+      evidence: provider.evidence,
       models: provider.models.map((model) => ({
         id: model.id,
         capabilities: model.capabilities,
@@ -103,8 +105,10 @@ export function formatDoctor(report: DoctorReport): string {
   lines.push("");
   lines.push("Providers:");
   for (const provider of report.providers) {
-    lines.push(`- ${provider.provider}: key_present=${provider.key_present} source=${provider.key_source} connectivity=${JSON.stringify(provider.connectivity)}`);
+    lines.push(`- ${provider.provider}: status=${provider.status} key_present=${provider.key_present} source=${provider.key_source} connectivity=${JSON.stringify(provider.connectivity)}`);
     if (provider.human_action) lines.push(`  human_action: ${provider.human_action}`);
+    const evidence = Array.isArray(provider.evidence) ? provider.evidence as string[] : [];
+    for (const item of evidence) lines.push(`  evidence: ${item}`);
     const models = Array.isArray(provider.models) ? provider.models as Array<Record<string, unknown>> : [];
     for (const model of models) {
       lines.push(`  model ${model.id}: ${JSON.stringify(model.capabilities)}`);
