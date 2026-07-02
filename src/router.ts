@@ -362,9 +362,10 @@ function orderProviders(order: string[]): ProviderDefinition[] {
 
 function orderCandidates(candidates: RouteCandidate[], args: { body: ChatRequestBody; protocol: "responses" | "chat_completions"; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): RouteCandidate[] {
   const exact = parseExactModel(args.modelRequested);
-  if (exact || args.routeHeaders.providerAllowlist.length > 0 || args.routeHeaders.routePolicy) return candidates;
+  if (exact || args.routeHeaders.providerAllowlist.length > 0) return candidates;
+  if (args.routeHeaders.routePolicy && args.routeHeaders.routePolicy !== "stable-coding-agent") return candidates;
 
-  const codingRequest = args.protocol === "responses" || hasRequestTools(args.body);
+  const codingRequest = args.routeHeaders.routePolicy === "stable-coding-agent" || args.protocol === "responses" || hasRequestTools(args.body);
   if (!codingRequest) return candidates;
 
   const providerRank = new Map(policyOrder({ ...args.routeHeaders, routePolicy: "stable-coding-agent" }, args.providerOrder).map((providerId, index) => [providerId, index]));
@@ -379,6 +380,9 @@ function orderCandidates(candidates: RouteCandidate[], args: { body: ChatRequest
 function policyOrder(routeHeaders: RouteHeaders, defaultOrder: string[]): string[] {
   if (routeHeaders.routePolicy === "dogfood-invalid-key-then-fallback") {
     return ["openrouter", "github_models", "kilo", "groq", "gemini"];
+  }
+  if (routeHeaders.routePolicy === "free-first") {
+    return ["opencode_free", "kilo", "openrouter", "github_models", "groq", "gemini"];
   }
   if (routeHeaders.routePolicy === "stable-coding-agent") {
     return ["openrouter", "github_models", "kilo", "opencode_free", "groq", "gemini"];

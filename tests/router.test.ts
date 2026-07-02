@@ -139,6 +139,79 @@ describe("router fallback", () => {
     expect(explanation).toContain("openrouter/qwen/qwen3-coder:free");
   });
 
+  it("applies the explicit stable-coding-agent policy to chat requests", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-stable-coding-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    vi.stubEnv("GITHUB_MODELS_TOKEN", "ghp-test");
+    const db = openDb();
+    let upstreamModel = "";
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const upstreamBody = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      upstreamModel = upstreamBody.model ?? "";
+      return new Response(JSON.stringify({
+        id: "chatcmpl_stable_coding",
+        model: upstreamModel,
+        choices: [{ message: { role: "assistant", content: "coding ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_stable_coding_policy",
+      db,
+      endpoint: "/v1/chat/completions",
+      method: "POST",
+      body: { model: "steadyroute:auto", messages: [{ role: "user", content: "write code" }] },
+      headers: { "x-steadyroute-route-policy": "stable-coding-agent" },
+      traceFullBodies: true,
+      providerOrder: ["opencode_free", "kilo", "github_models", "openrouter"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(upstreamModel).toBe("qwen/qwen3-coder:free");
+    const explanation = explainRequest(db, "req_stable_coding_policy");
+    expect(explanation).toContain("Route policy: stable-coding-agent");
+    expect(explanation).toContain("Final provider/model: openrouter / qwen/qwen3-coder:free");
+  });
+
+  it("applies the explicit free-first route policy before keyed providers", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-free-first-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    vi.stubEnv("GITHUB_MODELS_TOKEN", "ghp-test");
+    const db = openDb();
+    let observedAuth = "";
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      observedAuth = init?.headers && typeof init.headers === "object" && !Array.isArray(init.headers) ? String((init.headers as Record<string, string>).authorization ?? "") : "";
+      return new Response(JSON.stringify({
+        id: "chatcmpl_free_first",
+        model: "big-pickle",
+        choices: [{ message: { role: "assistant", content: "free ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_free_first_policy",
+      db,
+      endpoint: "/v1/chat/completions",
+      method: "POST",
+      body: { model: "steadyroute:auto", messages: [{ role: "user", content: "hi" }] },
+      headers: { "x-steadyroute-route-policy": "free-first" },
+      traceFullBodies: true,
+      providerOrder: ["openrouter", "github_models", "opencode_free", "kilo"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(observedAuth).toBe("Bearer public");
+    const explanation = explainRequest(db, "req_free_first_policy");
+    expect(explanation).toContain("Route policy: free-first");
+    expect(explanation).toContain("Final provider/model: opencode_free / big-pickle");
+  });
+
   it("classifies an allowlisted missing provider key as auth_failed", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-missing-key-test-"));
     homes.push(home);

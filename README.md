@@ -81,6 +81,16 @@ curl -sS -D /tmp/steadyroute-headers.txt \
   }'
 ```
 
+Select an explicit route policy when needed:
+
+```bash
+# Prefer no-login/free routes first.
+curl -H 'x-steadyroute-route-policy: free-first' ...
+
+# Prefer coding-agent-capable free models for agent-like requests.
+curl -H 'x-steadyroute-route-policy: stable-coding-agent' ...
+```
+
 Explain the request:
 
 ```bash

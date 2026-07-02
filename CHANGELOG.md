@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.9 - 2026-07-02
+
+- Added explicit `free-first` route policy ordering for no-login and free-provider routes.
+- Made explicit `stable-coding-agent` policy prefer coding-capable free models for chat and Responses requests.
+
 ## 0.1.8 - 2026-07-02
 
 - Added `steadyroute diagnostics export` for redacted local evidence bundles.
