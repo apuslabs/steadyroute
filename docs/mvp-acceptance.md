@@ -1201,6 +1201,9 @@ The MVP is accepted only if all required conditions are met:
 9. Scenario SR-MVP-08 proves quota and usage source labels are honest.
 10. Scenario SR-MVP-09 proves `doctor` state paths and post-restart explain.
 11. Scenario SR-MVP-10 passes for direct `/v1/responses`.
+12. Release traceability exists for the completed build: `CHANGELOG.md`,
+    versioned package metadata, pushed git commits, git tag, npm publication,
+    GitHub release, and linked validation artifacts or summaries.
 
 Optional Scenario SR-MVP-05 should be run when a supported client is already
 available locally, but it does not block MVP acceptance.
@@ -1223,7 +1226,43 @@ unexplained client success is a failure for MVP acceptance.
 10. Run SR-MVP-07 for controlled failure and fallback classification.
 11. Run SR-MVP-08 for quota evidence honesty.
 12. Restart SteadyRoute and run SR-MVP-09.
-13. If available, run SR-MVP-05 with one additional coding client.
+13. Update `CHANGELOG.md`, package version, release notes, and validation
+    artifact summaries.
+14. Publish the release to npm, push commits and tags, and create the GitHub
+    release.
+15. If available, run SR-MVP-05 with one additional coding client.
+
+## Release Traceability
+
+Each published build must leave enough evidence for a maintainer or user to
+reconstruct what was shipped and how it was validated.
+
+Required release artifacts:
+
+- `CHANGELOG.md` entry for the version
+- `package.json` and lockfile version update
+- pushed branch commits
+- git tag named `vX.Y.Z`
+- npm package publication
+- GitHub release with concise release notes
+- validation summary that links or names the acceptance evidence directory,
+  provider matrix snapshot, request ids used for dogfood, and known gaps
+
+Pass criteria:
+
+- `npm view steadyroute version` or equivalent package metadata shows the
+  published version after release.
+- The git tag points at the intended commit.
+- The GitHub release references the same version as npm and `CHANGELOG.md`.
+- Release notes mention real-provider validation status and any blocked
+  provider-auth steps.
+
+Fail criteria:
+
+- Code is only committed locally with no pushed branch, tag, npm version, or
+  release notes.
+- The npm version, git tag, and changelog version disagree.
+- Acceptance evidence exists only in local logs with no summarized artifact.
 
 ## What Must Be Automated Later
 

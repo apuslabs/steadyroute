@@ -262,6 +262,24 @@ Use small, reversible steps:
 - write ADRs for durable technical decisions
 - do not commit secrets or local acceptance evidence
 
+Every buildable version should also leave a release trail:
+
+- update `CHANGELOG.md` with user-visible changes, fixes, known gaps, and
+  verification notes
+- keep `package.json` and lockfile versions consistent
+- run the relevant build, test, and MVP smoke checks before publishing
+- commit version changes separately from unrelated feature work when practical
+- push the branch after meaningful milestones
+- tag released versions with `vX.Y.Z`
+- publish successful package builds to npm
+- create a GitHub release for published versions
+- attach or link release artifacts such as npm package tarball metadata,
+  acceptance evidence summaries, provider matrix snapshots, and benchmark notes
+
+Do not treat local commits alone as a completed version. A completed version
+must be traceable across git history, changelog, npm package version, tag,
+release notes, and validation artifacts.
+
 Good parallel research tracks:
 
 - 9router provider coverage and failure modes
