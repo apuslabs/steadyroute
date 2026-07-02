@@ -51,7 +51,7 @@ Unknown means unknown. It does not mean zero, unlimited, or safe to assume.
 | OpenCode Free | `opencode_free` | Anonymous/public marker | OpenAI-compatible chat | `verified` | `big-pickle`, `deepseek-v4-flash-free`, `mimo-v2.5-free` | Declared limits unknown; observed keyless chat success; quota unknown and must stay `unknown` in explain unless provider reports it. | Known by live SSE-capable route, but long-agent stability is not yet proven. | Unknown; should not be preferred for tool-rich requests until live tool evidence exists. | Network/provider failures should be fallbackable; schema/tool failures should be classified as compatibility issues. | Reference-derived from 9Router/OpenCode routes; live no-auth chat smoke on 2026-07-01; implemented in `src/providers.ts`. |
 | Kilo anonymous | `kilo` | Anonymous/public bearer | OpenAI-compatible chat via Kilo gateway | `verified` | `kilo-auto/free`, `openrouter/free` | Declared exact limits unknown; observed zero stored keys and successful real SteadyRoute `/v1/responses` Codex smoke; quota unknown. | Verified streaming path with SteadyRoute stream metadata; free upstream can still produce `stream_interrupted`. | `kilo-auto/free` is marked known; `openrouter/free` is community-reported because upstream model varies. | `stream_interrupted` is retryable/fallbackable/cooldown-worthy; malformed stream tool calls must not be treated as clean completions. | Reference-derived from OmniRoute and 9Router-style provider research; npm CLI Codex smoke through request IDs in local ledger on 2026-07-01. |
 | GitHub Models | `github_models` | `GITHUB_MODELS_TOKEN`, `GITHUB_TOKEN`, or local `gh auth token` | OpenAI-compatible chat endpoint | `verified` | `gpt-4o-mini` | Free API usage is rate limited by model class; GitHub docs expose RPM/RPD/token/concurrency limits; live provider returned rate-limit headers. | Supported for chat endpoint; full Codex startup hit an effective 8k token input limit in this environment. | `gpt-4o-mini` marked known for tool calls and JSON mode, but large Responses-shaped Codex turns are limited by token caps. | 413/token-limit errors map to `context_too_large`; auth/token errors map to `auth_failed`. | Official GitHub Models docs plus live SteadyRoute chat probe with local GitHub token on 2026-07-01. |
-| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` or encrypted key store | OpenAI-compatible chat | `broken` | `openrouter/free`, `cohere/north-mini-code:free`, `qwen/qwen3-coder:free`, `qwen/qwen3-next-80b-a3b-instruct:free`, `meta-llama/llama-3.3-70b-instruct:free`, `openai/gpt-oss-120b:free`, `openai/gpt-oss-20b:free`, `google/gemma-4-31b-it:free`, `nvidia/nemotron-3-super-120b-a12b:free` | Official docs expose `/api/v1/key`, free-model RPM and daily request limits, and credit fields; current key validation failed for chat, so no healthy quota evidence yet. | Officially supported via `stream: true`; not counted as verified until an account key succeeds through SteadyRoute. | Official docs support tool calling and structured outputs, but support is model-dependent. | Current available key returned `401 User not found`; classify as `auth_failed`, cooldown provider/key/model, and do not silently count as healthy. | Official OpenRouter docs plus failed live SteadyRoute/OpenRouter validation on 2026-07-01. |
+| OpenRouter | `openrouter` | `OPENROUTER_API_KEY` or encrypted key store | OpenAI-compatible chat | `verified` | `openrouter/free`, `cohere/north-mini-code:free`, `qwen/qwen3-coder:free`, `qwen/qwen3-next-80b-a3b-instruct:free`, `meta-llama/llama-3.3-70b-instruct:free`, `openai/gpt-oss-120b:free`, `openai/gpt-oss-20b:free`, `google/gemma-4-31b-it:free`, `nvidia/nemotron-3-super-120b-a12b:free` | Official docs expose `/api/v1/key`, free-model RPM and daily request limits, and credit fields; live SteadyRoute requests now preserve provider-reported usage while quota remains `unknown` unless the provider reports it. | Verified through live SteadyRoute streaming on `openrouter/free`; free-model upstream selection can still vary and occasionally rate-limit. | Official docs support tool calling and structured outputs; live SteadyRoute tool-call request returned a `report_package` tool call through OpenRouter. | Invalid keys classify as `auth_failed`; free upstream 429s classify as `rate_limited` with cooldown/fallback metadata; do not treat unknown quota as unlimited. | Official OpenRouter docs plus live SteadyRoute/OpenRouter validation on 2026-07-02 with request ids `02_tmCYK3BEJUuJmCf`, `t9TjE7HTld9jxQNo8f`, and `FFO1o-lxcz3I_CmQZK`. |
 | Groq | `groq` | `GROQ_API_KEY` or encrypted key store | OpenAI-compatible chat | `configured` | `openai/gpt-oss-20b`, `llama-3.3-70b-versatile` | Official docs publish RPM/RPD/TPM/TPD and rate-limit headers; no local key was available during validation. | Officially available for chat models; SteadyRoute implementation must still verify live streaming once a key is present. | Groq docs include tool and structured-output surfaces; current model metadata remains `unknown` until live tool smoke. | 429 maps to `rate_limited` or `quota_exhausted`; 401 maps to `auth_failed`; model/request errors should not be retried blindly. | Official Groq docs and implemented adapter; live validation blocked on missing key. |
 | Gemini API | `gemini` | `GEMINI_API_KEY` or `GOOGLE_API_KEY` | Native Gemini `generateContent` / `streamGenerateContent` | `configured` | `gemini-2.5-flash`, `gemini-2.5-flash-lite` | Official docs state RPM/TPM/RPD and project-level quotas; exact active limits are visible in AI Studio, not assumed by SteadyRoute. | Native streaming is available through Gemini API; SteadyRoute adapter must translate to OpenAI-compatible SSE. | Function calling is supported, but schema support is not full JSON Schema; unsupported schema keys must be stripped or classified. | `429 RESOURCE_EXHAUSTED` maps to `rate_limited` or `quota_exhausted`; schema rejection maps to `schema_rejected`. | Official Gemini docs and implemented adapter; live validation blocked on missing key. |
 
@@ -75,15 +75,16 @@ but are not active SteadyRoute MVP adapters yet.
 Minimum SR-MVP-04 requires two real providers among OpenRouter, Gemini, Groq, and
 GitHub Models. Current state:
 
-1. `github_models`: first near-term target and already verified for short
-   OpenAI-compatible chat. It is not enough alone for the two-provider gate.
-2. `groq` or `gemini`: next best target once the user provides a key or completes
-   account setup. Both adapters exist and do not require payment for normal free
-   tier validation according to public docs, but active quotas must be read from
-   provider responses or account consoles.
-3. `openrouter`: remains useful but currently broken for the available key. It
-   should only be promoted from `broken` after a SteadyRoute chat request
-   succeeds and `steadyroute explain <request-id>` records provider/model usage.
+1. `github_models`: verified for short OpenAI-compatible chat and rate-limit
+   source labels, but full Codex startup can exceed its effective 8k request
+   limit in this environment.
+2. `openrouter`: verified through SteadyRoute after a valid environment key was
+   provided. It now satisfies the second SR-MVP-04 provider slot alongside
+   GitHub Models, while free-model 429s remain expected provider behavior.
+3. `groq` or `gemini`: next expansion targets once the user provides a key or
+   completes account setup. Both adapters exist and do not require payment for
+   normal free-tier validation according to public docs, but active quotas must
+   be read from provider responses or account consoles.
 
 Keyless `kilo` and `opencode_free` are important for default usability and
 smoke tests, but they do not satisfy SR-MVP-04 because that gate explicitly
@@ -105,13 +106,13 @@ Populate this section with request ids from the final SR-MVP acceptance run.
 
 | Scenario | Provider | Request id | Evidence bundle path | Result |
 | --- | --- | --- | --- | --- |
-| SR-MVP-01 | GitHub Models | `hJQySrcLUAq10Rl2GM` | `.steadyroute-acceptance/20260702-112446` | passed with Node OpenAI SDK client through `/v1/chat/completions` |
-| SR-MVP-02 | GitHub Models | `wKbxEfNcgydl12g1Wr` | `.steadyroute-acceptance/20260702-112446` | passed with streaming SSE and ledger stream metadata |
-| SR-MVP-03 | TBD | TBD | TBD | pending; full catalog dogfood still required |
-| SR-MVP-04 provider 1 | GitHub Models | `zc8ENjvK63a8EKEg41` | `.steadyroute-acceptance/20260702-112446` | passed with provider allowlist |
-| SR-MVP-04 provider 2 | OpenRouter | `m5SKMJIBBsT9kV4mPo` | `.steadyroute-acceptance/20260702-112446` | failed with `auth_failed`; Groq request `PHc2hoyzrgUVoN28mz` and Gemini request `D_hfN-vuk-YdFaJuku` show missing-key skips |
-| SR-MVP-06 | GitHub Models | `ZIEJdKaItuECoRIfFx` | `.steadyroute-acceptance/20260702-112446` | passed; provider returned `report_package` tool call and explain shows tool request shape |
-| SR-MVP-07 | OpenRouter -> GitHub Models | `S17FhlRIisPY_66jrx` | `.steadyroute-acceptance/20260702-112446` | passed; invalid OpenRouter key classified `auth_failed`, then fallback succeeded |
-| SR-MVP-08 | GitHub Models / OpenRouter | `hJQySrcLUAq10Rl2GM`, `m5SKMJIBBsT9kV4mPo` | `.steadyroute-acceptance/20260702-112446` | partially covered; GitHub usage/rate-limit sources are labeled, OpenRouter unknown quota remains unknown |
-| SR-MVP-09 | GitHub Models | `bhwwX7hobfYqtSehv0` | `.steadyroute-acceptance/20260702-112446` | passed; pre-restart request explained after stop/start |
-| SR-MVP-10 | GitHub Models | `bhwwX7hobfYqtSehv0` | `.steadyroute-acceptance/20260702-112446` | passed for direct `/v1/responses` |
+| SR-MVP-01 | GitHub Models | `qHY6n3z7Qoep43nriu` | `.steadyroute-acceptance/20260702-084356-npm-013-gate-smoke` | passed with Node OpenAI SDK client through `/v1/chat/completions` using published `steadyroute@0.1.3` |
+| SR-MVP-02 | OpenRouter | `t9TjE7HTld9jxQNo8f` | `.steadyroute-acceptance/20260702-084356-npm-013-gate-smoke` | passed with streaming SSE and ledger stream metadata |
+| SR-MVP-03 | Kilo anonymous | `_LoR0_grADj8kWc8Xf` | `.steadyroute-acceptance/20260702-090642-npm-013-kilo-agent-tiny` | passed with Codex CLI `/v1/responses`, provider credentials unset, real file edit, and final `npm test` pass |
+| SR-MVP-04 provider 1 | GitHub Models | `4aw42DZlW9pk2vb6m1` | `.steadyroute-acceptance/20260702-083915-sr-mvp04-openrouter-retry` | passed with provider allowlist |
+| SR-MVP-04 provider 2 | OpenRouter | `02_tmCYK3BEJUuJmCf` | `.steadyroute-acceptance/20260702-083915-sr-mvp04-openrouter-retry` | passed with provider allowlist |
+| SR-MVP-06 | OpenRouter | `FFO1o-lxcz3I_CmQZK` | `.steadyroute-acceptance/20260702-084356-npm-013-gate-smoke` | passed; provider returned `report_package` tool call and explain shows tool request shape |
+| SR-MVP-07 | OpenRouter invalid -> valid key | `B-xbizZ5wjZgZKoJID` | `.steadyroute-acceptance/20260702-084356-npm-013-gate-smoke` | passed; invalid OpenRouter key classified `auth_failed`, then fallback succeeded |
+| SR-MVP-08 | GitHub Models / OpenRouter | `qHY6n3z7Qoep43nriu`, `1crHzqDG6liWh6eAU-` | `.steadyroute-acceptance/20260702-084356-npm-013-gate-smoke` | passed; usage/rate-limit values are source-labeled and unknown quota remains unknown |
+| SR-MVP-09 | OpenRouter | `1crHzqDG6liWh6eAU-` | `.steadyroute-acceptance/20260702-084356-npm-013-gate-smoke` | passed; pre-restart request explained after stop/start |
+| SR-MVP-10 | OpenRouter | `1crHzqDG6liWh6eAU-` | `.steadyroute-acceptance/20260702-084356-npm-013-gate-smoke` | passed for direct `/v1/responses` |
