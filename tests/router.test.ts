@@ -212,6 +212,84 @@ describe("router fallback", () => {
     expect(explanation).toContain("Final provider/model: opencode_free / big-pickle");
   });
 
+  it("applies a model allowlist before automatic coding-agent ordering", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-model-allowlist-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    const db = openDb();
+    let upstreamModel = "";
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const upstreamBody = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      upstreamModel = upstreamBody.model ?? "";
+      return new Response(JSON.stringify({
+        id: "chatcmpl_model_allowlist",
+        model: upstreamModel,
+        choices: [{ message: { role: "assistant", content: "allowlist ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_model_allowlist",
+      db,
+      endpoint: "/v1/responses",
+      method: "POST",
+      body: { model: "steadyroute:auto", input: "inspect files and run tests" },
+      headers: {
+        "x-steadyroute-provider-allowlist": "openrouter",
+        "x-steadyroute-model-allowlist": "steadyroute:openrouter/openai/gpt-oss-20b:free"
+      },
+      traceFullBodies: true,
+      providerOrder: ["openrouter"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(upstreamModel).toBe("openai/gpt-oss-20b:free");
+    const explanation = explainRequest(db, "req_model_allowlist");
+    expect(explanation).toContain("Final provider/model: openrouter / openai/gpt-oss-20b:free");
+    expect(explanation).toContain("openrouter/qwen/qwen3-coder:free: not in model allowlist");
+  });
+
+  it("applies a model denylist and records skipped model reasons", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-model-denylist-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    const db = openDb();
+    let upstreamModel = "";
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const upstreamBody = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      upstreamModel = upstreamBody.model ?? "";
+      return new Response(JSON.stringify({
+        id: "chatcmpl_model_denylist",
+        model: upstreamModel,
+        choices: [{ message: { role: "assistant", content: "denylist ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_model_denylist",
+      db,
+      endpoint: "/v1/responses",
+      method: "POST",
+      body: { model: "steadyroute:auto", input: "inspect files and run tests" },
+      headers: {
+        "x-steadyroute-provider-allowlist": "openrouter",
+        "x-steadyroute-model-denylist": "qwen/qwen3-coder:free"
+      },
+      traceFullBodies: true,
+      providerOrder: ["openrouter"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(upstreamModel).toBe("openrouter/free");
+    const explanation = explainRequest(db, "req_model_denylist");
+    expect(explanation).toContain("Final provider/model: openrouter / openrouter/free");
+    expect(explanation).toContain("openrouter/qwen/qwen3-coder:free: model denylisted");
+  });
+
   it("returns context_too_large when an exact model cannot fit the estimated request", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-context-limit-test-"));
     homes.push(home);

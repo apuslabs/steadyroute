@@ -96,6 +96,10 @@ curl -H 'x-steadyroute-route-policy: free-first' ...
 
 # Prefer coding-agent-capable free models for agent-like requests.
 curl -H 'x-steadyroute-route-policy: stable-coding-agent' ...
+
+# Restrict routing to a provider or model set.
+curl -H 'x-steadyroute-provider-allowlist: openrouter' \
+  -H 'x-steadyroute-model-denylist: qwen/qwen3-coder:free' ...
 ```
 
 Explain the request:

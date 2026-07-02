@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.14 - 2026-07-02
+
+- Added model-level allowlist and denylist routing headers with explainable skipped-candidate evidence.
+
 ## 0.1.13 - 2026-07-02
 
 - Added router-side context-window preflight so oversized requests skip too-small models before provider calls and report `context_too_large` with ledger/explain evidence.

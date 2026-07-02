@@ -129,5 +129,7 @@ export interface ProviderAttemptResult {
 export interface RouteHeaders {
   providerAllowlist: string[];
   providerDenylist: string[];
+  modelAllowlist: string[];
+  modelDenylist: string[];
   routePolicy: string | null;
 }

@@ -277,6 +277,14 @@ function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; p
         skips.push({ provider: provider.id, model: model.id, reason: "tool_unsupported by catalog" });
         continue;
       }
+      if (args.routeHeaders.modelAllowlist.length > 0 && !matchesModelList(args.routeHeaders.modelAllowlist, provider.id, model.id)) {
+        skips.push({ provider: provider.id, model: model.id, reason: "not in model allowlist" });
+        continue;
+      }
+      if (matchesModelList(args.routeHeaders.modelDenylist, provider.id, model.id)) {
+        skips.push({ provider: provider.id, model: model.id, reason: "model denylisted" });
+        continue;
+      }
       if (stream && model.capabilities.streaming === "unsupported") {
         skips.push({ provider: provider.id, model: model.id, reason: "streaming unsupported by catalog" });
         continue;
@@ -347,6 +355,8 @@ function parseRouteHeaders(headers: Record<string, string | string[] | undefined
   return {
     providerAllowlist: splitHeader(headers["x-steadyroute-provider-allowlist"]),
     providerDenylist: splitHeader(headers["x-steadyroute-provider-denylist"]),
+    modelAllowlist: splitHeader(headers["x-steadyroute-model-allowlist"]),
+    modelDenylist: splitHeader(headers["x-steadyroute-model-denylist"]),
     routePolicy: headerString(headers["x-steadyroute-route-policy"])
   };
 }
@@ -374,7 +384,7 @@ function orderProviders(order: string[]): ProviderDefinition[] {
 
 function orderCandidates(candidates: RouteCandidate[], args: { body: ChatRequestBody; protocol: "responses" | "chat_completions"; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): RouteCandidate[] {
   const exact = parseExactModel(args.modelRequested);
-  if (exact || args.routeHeaders.providerAllowlist.length > 0) return candidates;
+  if (exact || args.routeHeaders.providerAllowlist.length > 0 || args.routeHeaders.modelAllowlist.length > 0) return candidates;
   if (args.routeHeaders.routePolicy && args.routeHeaders.routePolicy !== "stable-coding-agent") return candidates;
 
   const codingRequest = args.routeHeaders.routePolicy === "stable-coding-agent" || args.protocol === "responses" || hasRequestTools(args.body);
@@ -416,6 +426,14 @@ function candidateSummary(candidate: RouteCandidate): Record<string, unknown> {
 
 function hasRequestTools(body: ChatRequestBody): boolean {
   return Array.isArray(body.tools) ? body.tools.length > 0 : Boolean(body.tools);
+}
+
+function matchesModelList(list: string[], providerId: string, modelId: string): boolean {
+  return list.some((entry) => {
+    const normalized = entry.startsWith("steadyroute:") ? entry.slice("steadyroute:".length) : entry;
+    if (normalized === modelId) return true;
+    return normalized === `${providerId}/${modelId}`;
+  });
 }
 
 function estimateRequestedTokens(body: ChatRequestBody): number {

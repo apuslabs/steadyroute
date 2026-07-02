@@ -30,6 +30,8 @@ Non-fallbackable MVP classes are client/request-shape failures: `request_invalid
 
 Cooldowns are scoped to provider/model/key alias. This intentionally avoids provider-wide quarantine for one bad key or one removed model.
 
+Provider and model allowlists/denylists are evaluated before capability, context, and cooldown checks. Model list entries may be a bare model id, `provider/model`, or `steadyroute:provider/model`; skipped candidates are recorded with explicit allowlist or denylist reasons.
+
 ## Context-Window Preflight
 
 Before provider calls, the router applies a conservative request-size estimate against each candidate model's catalog `contextWindow`. The estimate uses the normalized chat prompt text and requested output cap when present, or a default output reserve otherwise. This is not exact provider tokenization and is not used for billing or usage reporting. It exists to avoid provider calls that are clearly too large and to record `context_too_large` skip evidence in the ledger and `steadyroute explain`.
