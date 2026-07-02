@@ -86,21 +86,27 @@ export function chatToResponsesResponse(chat: Record<string, unknown>, requestMo
   const message = first.message && typeof first.message === "object" ? first.message as Record<string, unknown> : {};
   const content = typeof message.content === "string" ? message.content : "";
   const id = typeof chat.id === "string" ? chat.id : `resp_${Date.now()}`;
+  const output: Array<Record<string, unknown>> = [];
+  const toolCalls = Array.isArray(message.tool_calls) ? message.tool_calls as Array<Record<string, unknown>> : [];
+  if (content.length > 0 || toolCalls.length === 0) {
+    output.push({
+      id: `msg_${id}`,
+      type: "message",
+      status: "completed",
+      role: "assistant",
+      content: [{ type: "output_text", text: content }]
+    });
+  }
+  for (const [index, call] of toolCalls.entries()) {
+    output.push(chatToolCallToResponseItem(call, index));
+  }
   return {
     id,
     object: "response",
     created_at: Math.floor(Date.now() / 1000),
     status: "completed",
     model: typeof chat.model === "string" ? chat.model : requestModel,
-    output: [
-      {
-        id: `msg_${id}`,
-        type: "message",
-        status: "completed",
-        role: "assistant",
-        content: [{ type: "output_text", text: content }]
-      }
-    ],
+    output,
     output_text: content,
     usage: chat.usage ?? null,
     steadyroute: chat.steadyroute
@@ -284,6 +290,19 @@ function toolItem(tool: ResponseToolCallState, status: "in_progress" | "complete
     call_id: tool.callId,
     name: tool.name,
     arguments: tool.arguments
+  };
+}
+
+function chatToolCallToResponseItem(call: Record<string, unknown>, index: number): Record<string, unknown> {
+  const fn = call.function && typeof call.function === "object" ? call.function as Record<string, unknown> : {};
+  const callId = typeof call.id === "string" && call.id.length > 0 ? call.id : `call_${index}`;
+  return {
+    id: `fc_${callId}`,
+    type: "function_call",
+    status: "completed",
+    call_id: callId,
+    name: typeof fn.name === "string" && fn.name.length > 0 ? fn.name : "tool",
+    arguments: normalizeToolArguments(fn.arguments)
   };
 }
 

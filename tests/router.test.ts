@@ -126,6 +126,62 @@ describe("router fallback", () => {
     expect(explanation).toContain("Create or provide a Groq API key");
   });
 
+  it("slims Codex tool definitions for GitHub Models without changing the local request trace", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-github-slim-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("GITHUB_MODELS_TOKEN", "ghp-test");
+    const db = openDb();
+    let upstreamToolNames: string[] = [];
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const upstreamBody = JSON.parse(String(init?.body ?? "{}")) as { tools?: Array<{ function?: { name?: string } }> };
+      upstreamToolNames = upstreamBody.tools?.map((tool) => tool.function?.name ?? "") ?? [];
+      return new Response(JSON.stringify({
+        id: "chatcmpl_tool",
+        model: "gpt-4o-mini",
+        choices: [{
+          message: {
+            role: "assistant",
+            content: null,
+            tool_calls: [{
+              id: "call_1",
+              type: "function",
+              function: { name: "exec_command", arguments: "{\"cmd\":\"pwd\"}" }
+            }]
+          },
+          finish_reason: "tool_calls"
+        }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const tools = [
+      { type: "function", name: "exec_command", parameters: { type: "object", properties: { cmd: { type: "string" } } } },
+      { type: "function", name: "write_stdin", parameters: { type: "object", properties: { session_id: { type: "number" }, chars: { type: "string" } } } },
+      { type: "function", name: "spawn_agent", parameters: { type: "object", properties: { prompt: { type: "string" } } } },
+      { type: "function", name: "update_plan", parameters: { type: "object", properties: { plan: { type: "array" } } } }
+    ];
+
+    const result = await routeRequest({
+      requestId: "req_github_slim",
+      db,
+      endpoint: "/v1/responses",
+      method: "POST",
+      body: { model: "steadyroute:github_models/gpt-4o-mini", input: "run pwd", stream: false, tools },
+      headers: {},
+      traceFullBodies: true,
+      providerOrder: ["github_models"]
+    });
+
+    expect(result.response.status).toBe(200);
+    const body = await result.response.json() as { output?: Array<Record<string, unknown>> };
+    expect(body.output).toContainEqual(expect.objectContaining({ type: "function_call", name: "exec_command" }));
+    expect(upstreamToolNames).toEqual(["exec_command", "write_stdin"]);
+    const explanation = explainRequest(db, "req_github_slim");
+    expect(explanation).toContain("tool_names: exec_command, write_stdin, spawn_agent, update_plan");
+    expect(explanation).toContain("response_tool_calls: exec_command");
+  });
+
   it("closes a stream after a terminal finish chunk without waiting for upstream done", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-terminal-stream-"));
     homes.push(home);

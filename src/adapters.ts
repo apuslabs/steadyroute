@@ -28,7 +28,7 @@ export async function streamProvider(input: AdapterInput, responseMode: "chat" |
 }
 
 async function callOpenAiCompatible(input: AdapterInput): Promise<ProviderAttemptResult> {
-  const upstreamBody = buildOpenAiBody(input.body, input.model.id, false);
+  const upstreamBody = buildOpenAiBody(input.body, input.model.id, false, input.provider.id);
   const response = await fetch(input.provider.baseUrl, {
     method: "POST",
     headers: buildHeaders(input.provider, input.key, false),
@@ -53,7 +53,7 @@ async function callOpenAiCompatible(input: AdapterInput): Promise<ProviderAttemp
 }
 
 async function streamOpenAiCompatible(input: AdapterInput, responseMode: "chat" | "responses"): Promise<StreamResult> {
-  const upstreamBody = buildOpenAiBody(input.body, input.model.id, true);
+  const upstreamBody = buildOpenAiBody(input.body, input.model.id, true, input.provider.id);
   const upstream = await fetch(input.provider.baseUrl, {
     method: "POST",
     headers: buildHeaders(input.provider, input.key, true),
@@ -333,14 +333,56 @@ function tryError(controller: ReadableStreamDefaultController<Uint8Array>, error
   }
 }
 
-function buildOpenAiBody(body: ChatRequestBody, model: string, stream: boolean): Record<string, unknown> {
+function buildOpenAiBody(body: ChatRequestBody, model: string, stream: boolean, providerId: string): Record<string, unknown> {
   const allowed = new Set(["messages", "temperature", "top_p", "stop", "max_tokens", "max_completion_tokens", "tools", "tool_choice", "response_format", "parallel_tool_calls"]);
   const out: Record<string, unknown> = { model, stream };
   for (const [key, value] of Object.entries(body)) {
     if (allowed.has(key) && value !== undefined) out[key] = value;
   }
   if (!out.messages) out.messages = body.messages ?? [{ role: "user", content: "" }];
+  if (providerId === "github_models") slimGithubModelsBody(out);
   return out;
+}
+
+function slimGithubModelsBody(body: Record<string, unknown>): void {
+  const slimTools = slimToolList(body.tools);
+  if (slimTools) body.tools = slimTools;
+  else delete body.tools;
+
+  if (!slimTools || !isAllowedToolChoice(body.tool_choice, slimTools)) {
+    delete body.tool_choice;
+  }
+  if (!slimTools || slimTools.length < 2) {
+    delete body.parallel_tool_calls;
+  }
+}
+
+function slimToolList(tools: unknown): unknown[] | null {
+  if (!Array.isArray(tools)) return null;
+  const allowedNames = new Set(["exec_command", "write_stdin"]);
+  const slim = tools.filter((tool) => {
+    if (!tool || typeof tool !== "object") return false;
+    const record = tool as Record<string, unknown>;
+    const fn = record.function && typeof record.function === "object" ? record.function as Record<string, unknown> : null;
+    const name = typeof fn?.name === "string" ? fn.name : typeof record.name === "string" ? record.name : null;
+    return Boolean(name && allowedNames.has(name));
+  });
+  return slim.length > 0 ? slim : null;
+}
+
+function isAllowedToolChoice(toolChoice: unknown, tools: unknown[]): boolean {
+  if (!toolChoice || typeof toolChoice !== "object") return true;
+  const obj = toolChoice as Record<string, unknown>;
+  if (obj.type !== "function") return true;
+  const fn = obj.function && typeof obj.function === "object" ? obj.function as Record<string, unknown> : null;
+  const name = typeof fn?.name === "string" ? fn.name : typeof obj.name === "string" ? obj.name : null;
+  if (!name) return false;
+  return tools.some((tool) => {
+    if (!tool || typeof tool !== "object") return false;
+    const record = tool as Record<string, unknown>;
+    const toolFn = record.function && typeof record.function === "object" ? record.function as Record<string, unknown> : null;
+    return toolFn?.name === name || record.name === name;
+  });
 }
 
 function buildHeaders(provider: ProviderDefinition, key: KeyMaterial, stream: boolean): Record<string, string> {

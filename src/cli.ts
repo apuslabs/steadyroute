@@ -7,6 +7,7 @@ import { addProviderKey, openDb } from "./db.js";
 import { buildDoctorReport, formatDoctor } from "./doctor.js";
 import { explainRequest } from "./explain.js";
 import { resolvePaths } from "./paths.js";
+import { formatProviderList, formatProviderStatus, formatProviderTestResult, providerAuth, providerListRows, providerStatusRows, runProviderSmokeTest } from "./providerCommands.js";
 import { PROVIDERS } from "./providers.js";
 import { readRuntimeStatus, removeRuntimeState, writeRuntimeState } from "./runtime.js";
 import { buildServer } from "./server.js";
@@ -112,6 +113,49 @@ keys
     const db = openDb();
     addProviderKey(db, provider, options.alias, value.trim());
     console.log(`Stored encrypted key for ${provider}/${options.alias}`);
+  });
+
+const providers = program.command("providers").description("Inspect, auth, and test providers");
+providers
+  .command("list")
+  .description("List provider catalog entries and auth modes")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const rows = providerListRows();
+    console.log(options.json ? JSON.stringify(rows, null, 2) : formatProviderList(rows));
+  });
+
+providers
+  .command("status [provider]")
+  .description("Show provider key, status, model, and probe state")
+  .option("--json", "Emit JSON")
+  .option("--probe", "Include lightweight provider probe summaries")
+  .action(async (provider, options) => {
+    const db = openDb();
+    const rows = await providerStatusRows(db, provider ?? null, Boolean(options.probe));
+    console.log(options.json ? JSON.stringify(rows, null, 2) : formatProviderStatus(rows));
+  });
+
+providers
+  .command("auth <provider>")
+  .description("Show provider auth setup state, or store a provider key")
+  .option("--alias <alias>", "Key alias", "default")
+  .option("--value <value>", "Store this key value in the encrypted key store")
+  .action((provider, options) => {
+    const db = openDb();
+    console.log(providerAuth(db, provider, options));
+  });
+
+providers
+  .command("test <provider>")
+  .description("Run a real provider smoke request through the local router and ledger")
+  .option("--model <model>", "Provider model id to test")
+  .option("--json", "Emit JSON")
+  .action(async (provider, options) => {
+    const db = openDb();
+    const result = await runProviderSmokeTest(db, provider, options);
+    console.log(options.json ? JSON.stringify(result, null, 2) : formatProviderTestResult(result));
+    if (!result.ok) process.exitCode = 1;
   });
 
 program

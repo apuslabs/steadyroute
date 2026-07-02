@@ -22,6 +22,37 @@ describe("Responses translation", () => {
     expect(response.output).toHaveLength(1);
   });
 
+  it("preserves non-streaming chat tool calls in Responses output", () => {
+    const response = chatToResponsesResponse({
+      id: "chatcmpl_tool",
+      model: "gpt-test",
+      choices: [{
+        message: {
+          role: "assistant",
+          content: null,
+          tool_calls: [{
+            id: "call_1",
+            type: "function",
+            function: { name: "exec_command", arguments: "{\"cmd\":\"pwd\"}" }
+          }]
+        },
+        finish_reason: "tool_calls"
+      }]
+    }, "steadyroute:auto");
+
+    expect(response.output_text).toBe("");
+    expect(response.output).toEqual([
+      {
+        id: "fc_call_1",
+        type: "function_call",
+        status: "completed",
+        call_id: "call_1",
+        name: "exec_command",
+        arguments: "{\"cmd\":\"pwd\"}"
+      }
+    ]);
+  });
+
   it("converts Responses function-call history back to chat tool messages", () => {
     const chat = responsesToChat({
       model: "steadyroute:auto",

@@ -1,6 +1,6 @@
 {
   "name": "steadyroute",
-  "version": "0.1.3",
+  "version": "0.1.5",
   "description": "Self-healing free LLM router.",
   "type": "module",
   "main": "dist/index.js",
@@ -10,6 +10,7 @@
   "files": [
     "dist",
     "docs",
+    "CHANGELOG.md",
     "README.md",
     "LICENSE",
     "SECURITY.md"

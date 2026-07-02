@@ -11,6 +11,11 @@ describe("error taxonomy", () => {
     expect(classifyProviderFailure(503, "overloaded")).toBe("provider_down");
   });
 
+  it("classifies terminated provider connections as network errors", () => {
+    expect(classifyProviderFailure(null, "", new Error("terminated"))).toBe("network_error");
+    expect(classifyProviderFailure(null, "UND_ERR_SOCKET other side closed")).toBe("network_error");
+  });
+
   it("marks request_invalid and schema_rejected as non-fallbackable", () => {
     expect(behaviorFor("request_invalid").fallbackable).toBe(false);
     expect(behaviorFor("schema_rejected").fallbackable).toBe(false);

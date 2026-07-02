@@ -43,7 +43,16 @@ export function classifyProviderFailure(status: number | null, bodyText: string,
   const combined = `${text} ${causeText}`;
 
   if (combined.includes("abort") || combined.includes("timeout") || combined.includes("timed out")) return "timeout";
-  if (combined.includes("econn") || combined.includes("socket") || combined.includes("fetch failed") || combined.includes("network")) return "network_error";
+  if (
+    combined.includes("econn") ||
+    combined.includes("socket") ||
+    combined.includes("fetch failed") ||
+    combined.includes("network") ||
+    combined.includes("terminated") ||
+    combined.includes("connection closed") ||
+    combined.includes("other side closed") ||
+    combined.includes("undici")
+  ) return "network_error";
 
   if (status === 401 || combined.includes("invalid api key") || combined.includes("unauthorized") || combined.includes("user not found")) return "auth_failed";
   if (status === 402 || combined.includes("payment") || combined.includes("billing") || combined.includes("out of credits") || combined.includes("insufficient balance")) return "billing_required";

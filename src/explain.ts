@@ -139,5 +139,9 @@ function extractResponseToolCalls(body: Record<string, unknown>): string[] {
       if (typeof fn.name === "string") names.push(fn.name);
     }
   }
+  const output = Array.isArray(body.output) ? body.output as Array<Record<string, unknown>> : [];
+  for (const item of output) {
+    if (item.type === "function_call" && typeof item.name === "string") names.push(item.name);
+  }
   return names;
 }
