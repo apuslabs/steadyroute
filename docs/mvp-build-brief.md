@@ -61,14 +61,26 @@ codebase and document technical decisions in ADRs.
 
 Provider aggregation is part of the MVP, not a later polish item.
 
-Research and track free-tier and low-cost providers from the reference projects
-and public provider documentation. Start with providers likely to be usable
-without payment or with a free account:
+Research and track the provider inventory from the reference projects and
+public provider documentation. The goal is inventory alignment with 9router,
+FreeLLMAPI, and OmniRoute, not only broad category coverage. If a provider is
+covered by the reference projects, SteadyRoute should either implement it,
+document why it is blocked, or explicitly mark it as out of scope with evidence.
+
+Start with providers likely to be usable without payment or with a free account:
 
 - OpenRouter free models
 - Gemini free tier
 - Groq free tier
 - GitHub Models
+- Cloudflare Workers AI
+- Cerebras
+- NVIDIA-hosted models
+- Mistral free or trial access
+- Pollinations
+- LLM7 or similar OpenAI-compatible free endpoints
+- OVH or similar trial/free model endpoints
+- local providers used as fallback or compatibility targets
 - keyless or anonymous OpenAI-compatible providers discovered from reference
   projects
 - other low-cost providers that are useful for coding-agent workloads
@@ -76,8 +88,10 @@ without payment or with a free account:
 Each provider/model entry must have a status:
 
 - `verified`: real request succeeded through SteadyRoute
-- `configured`: adapter or catalog entry exists but validation is blocked by
-  credentials, account state, region, quota, or manual setup
+- `implemented-unverified`: adapter exists but has not completed real
+  validation
+- `blocked-by-auth`: validation is blocked by credentials, account state,
+  OAuth, device flow, region, quota, or manual setup
 - `catalog-only`: metadata is documented but not implemented or validated
 - `broken`: validation failed and the failure is documented
 - `deprecated`: provider or endpoint should not be selected by default
@@ -93,6 +107,19 @@ Provider metadata must separate:
 Never present unknown quota, context, tool-call, or streaming behavior as exact
 provider truth.
 
+The competitive provider gate is:
+
+- the provider inventory is aligned with the providers found in 9router,
+  FreeLLMAPI, and OmniRoute, with status for every candidate
+- at least one anonymous or keyless route works after install without user
+  login
+- at least four real providers complete SteadyRoute smoke requests
+- at least two verified providers come from the primary free or low-cost set:
+  OpenRouter, Gemini, Groq, GitHub Models, Kilo, Pollinations, LLM7,
+  Cloudflare, Cerebras, NVIDIA, or Mistral
+- at least one provider that requires user auth has a CLI auth/test entry point,
+  even if the browser login or device-flow step needs user assistance
+
 ## Provider Auth Policy
 
 Prefer no-cost validation paths. If a provider requires login, API key creation,
@@ -102,6 +129,21 @@ step.
 
 Do not bypass provider controls. Do not scrape private credentials. Do not evade
 rate limits, region limits, or Terms of Service.
+
+The CLI should expose provider setup as a first-class flow:
+
+- `steadyroute providers list`
+- `steadyroute providers status`
+- `steadyroute providers auth <provider>`
+- `steadyroute providers test <provider>`
+- `steadyroute keys add`
+- `steadyroute keys list`
+- `steadyroute keys remove`
+
+For OAuth, device-code, browser login, CAPTCHA, or ToS acceptance, the command
+may open the browser, print a URL/code, or pause for the user to complete the
+provider-owned step. Automation may help the user operate the browser, but it
+must not bypass provider controls.
 
 ## Core Runtime Requirements
 
@@ -235,4 +277,3 @@ The MVP is complete only when it satisfies the minimum gate in
 
 Final acceptance must use real providers and real clients or agents. Unit tests
 may use mocks, but mocks cannot satisfy the MVP dogfood gate.
-

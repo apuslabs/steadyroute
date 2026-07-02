@@ -71,13 +71,14 @@ steadyroute start --host 127.0.0.1 --port 3001
   - catalog version or catalog source
   - provider key presence by provider without printing key values
   - trace or ledger retention setting
-- Provider credentials are loaded from local environment variables or the
+- Provider credentials are loaded from local environment variables, provider
+  auth commands, or the
   SteadyRoute encrypted key store. Preferred first providers:
   - OpenRouter, usually `OPENROUTER_API_KEY`
   - Gemini, usually `GEMINI_API_KEY` or `GOOGLE_API_KEY`
   - Groq, usually `GROQ_API_KEY`
   - GitHub Models, usually `GITHUB_TOKEN` or `GITHUB_MODELS_TOKEN`
-- At least two real providers must be available and healthy for the minimum MVP
+- At least four real providers must be available and healthy for the minimum MVP
   acceptance gate.
 
 Use only accounts and keys the tester is authorized to use. Respect each
@@ -88,12 +89,12 @@ provider's Terms of Service and free-tier limits.
 ### Purpose
 
 Verify that provider aggregation is treated as an MVP requirement, and that the
-provider matrix is informed by 9router, FreeLLMAPI, OmniRoute, and public
+provider matrix is aligned with 9router, FreeLLMAPI, OmniRoute, and public
 provider documentation.
 
 This scenario runs before SR-MVP-00. It does not require every provider to be
-fully implemented, but it requires every important provider candidate to have a
-visible status and evidence trail.
+verified, but it requires every provider candidate from the reference projects
+to have a visible status and evidence trail.
 
 ### Prerequisites
 
@@ -121,13 +122,15 @@ Create or update a provider coverage note under `docs/providers/` or
 - quota and rate-limit behavior
 - region or network notes
 - ToS or documentation links
-- SteadyRoute status: `verified`, `configured`, `catalog-only`, `broken`, or
-  `deprecated`
+- SteadyRoute status: `verified`, `implemented-unverified`,
+  `blocked-by-auth`, `catalog-only`, `broken`, or `deprecated`
 - evidence source
 
-At minimum, assess OpenRouter free models, Gemini free tier, Groq free tier,
-GitHub Models, and the keyless or anonymous providers surfaced by the reference
-projects.
+At minimum, assess every provider surfaced by 9router, FreeLLMAPI, and
+OmniRoute, plus OpenRouter free models, Gemini free tier, Groq free tier,
+GitHub Models, Kilo, Pollinations, LLM7, Cloudflare, Cerebras, NVIDIA, Mistral,
+OVH, local providers, and keyless or anonymous providers surfaced by the
+reference projects.
 
 ### Expected SteadyRoute Behavior
 
@@ -135,6 +138,8 @@ projects.
 - Unknown fields remain unknown instead of being guessed.
 - Broken or blocked providers keep their failure reason.
 - Provider coverage work informs routing and catalog metadata.
+- Anonymous/keyless routes are clearly distinguished from API-key, OAuth,
+  device-flow, browser-login, subscription, trial, local, and low-cost routes.
 
 ### Expected Ledger / Explain Evidence
 
@@ -145,9 +150,11 @@ back to the provider matrix.
 ### Pass Criteria
 
 - The provider matrix exists and includes reference-project-derived provider
-  candidates.
+  candidates from 9router, FreeLLMAPI, and OmniRoute.
 - Each provider has a status and evidence source.
-- At least two providers are selected as near-term validation targets.
+- At least four providers are selected as near-term validation targets.
+- At least one anonymous or keyless provider is marked for default install-time
+  usability.
 - No unavailable provider is silently presented as healthy.
 
 ### Fail Criteria
@@ -165,49 +172,40 @@ Do not skip. Provider coverage is part of MVP acceptance.
 
 ## Dogfood Project Selection
 
-Use a real local project, not a one-line toy prompt. The preferred project is a
-throwaway worktree or copy of the catalog repo:
+Use a real local project, not a one-line toy prompt. The preferred project is an
+empty temporary Git repo so the agent must create the application structure
+itself:
 
 ```bash
 export DOGFOOD_PARENT="$(mktemp -d /tmp/steadyroute-dogfood.XXXXXX)"
-git -C /Users/jax/Desktop/Apus/open-free-llm-catalog worktree add \
-  "$DOGFOOD_PARENT/open-free-llm-catalog-dogfood" HEAD
-export DOGFOOD_PROJECT="$DOGFOOD_PARENT/open-free-llm-catalog-dogfood"
-```
-
-If a Git worktree cannot be created because the catalog repo is dirty,
-worktree-disabled, or unavailable, create a disposable copy instead and record
-why:
-
-```bash
-export DOGFOOD_PARENT="$(mktemp -d /tmp/steadyroute-dogfood.XXXXXX)"
-rsync -a --exclude .git \
-  /Users/jax/Desktop/Apus/open-free-llm-catalog/ \
-  "$DOGFOOD_PARENT/open-free-llm-catalog-dogfood/"
-git -C "$DOGFOOD_PARENT/open-free-llm-catalog-dogfood" init
-git -C "$DOGFOOD_PARENT/open-free-llm-catalog-dogfood" config user.name "SteadyRoute Dogfood"
-git -C "$DOGFOOD_PARENT/open-free-llm-catalog-dogfood" config user.email "steadyroute-dogfood@example.local"
-git -C "$DOGFOOD_PARENT/open-free-llm-catalog-dogfood" add .
-git -C "$DOGFOOD_PARENT/open-free-llm-catalog-dogfood" commit -m "Dogfood baseline"
-export DOGFOOD_PROJECT="$DOGFOOD_PARENT/open-free-llm-catalog-dogfood"
+export DOGFOOD_PROJECT="$DOGFOOD_PARENT/launchboard"
+mkdir -p "$DOGFOOD_PROJECT"
+git -C "$DOGFOOD_PROJECT" init
+git -C "$DOGFOOD_PROJECT" config user.name "SteadyRoute Dogfood"
+git -C "$DOGFOOD_PROJECT" config user.email "steadyroute-dogfood@example.local"
 ```
 
 Dogfood coding task:
 
-> Inspect this catalog repo. Add a minimal validation command for
-> `examples/provider.example.yaml` against `schema/catalog.schema.json`. If the
-> repo has no test command, add the smallest appropriate local test or validation
-> script and wire it to the project test command. Run the test command, fix any
-> failures caused by your change, and summarize the files changed. Keep provider
-> facts unchanged unless validation requires a schema-compliant correction.
+> Build LaunchBoard, a small full-stack launch tracker for indie products, from
+> an empty disposable project directory. The app must include four pages:
+> Dashboard, Products, Product Detail, and Settings. It must include API routes
+> for listing products, creating products, reading a product, updating a
+> product, and adding launch checklist tasks. It must include a simple data
+> layer using SQLite, a JSON file, or in-memory storage. It must include forms,
+> filtering, a launch checklist, notes or activity timeline, and a team/settings
+> screen. Install dependencies, run at least one real build, test, lint, or type
+> check command, fix failures caused by the implementation, and summarize the
+> changed files plus final verification command.
 
-Successful completion means the agent inspected the repo, modified files in the
-dogfood project, ran a real command such as `npm test`, `pnpm test`, `pytest`, or
-an equivalent validation command, and produced a clean summary with the final
-test result.
+Successful completion means the agent created a working multi-page full-stack
+application, ran a real verification command such as `npm test`, `pnpm test`,
+`npm run build`, `npm run lint`, `tsc`, or an equivalent project command, and
+produced a clean summary with the final result.
 
-If the catalog repo is unavailable, use another small local Git project with a
-real test or validation command. Record the selected project, task, and reason.
+If the local agent cannot create a project from an empty directory, use a
+minimal Vite, Next.js, Remix, Express, Fastify, Hono, or similar starter and
+record why the empty-project path was blocked.
 
 ## Scenario SR-MVP-00: Baseline Doctor and Model Discovery
 
@@ -385,7 +383,7 @@ steadyroute explain "$REQUEST_ID" | tee "$SR_EVIDENCE_DIR/01-explain.txt"
 - SDK/client execution cannot be skipped for MVP acceptance. If no SDK/client is
   installed, run the curl diagnostic fallback and mark this scenario blocked.
 - Provider-specific failures may be skipped only when no real provider
-  credential is available; the minimum MVP gate still requires two real
+  credential is available; the minimum MVP gate still requires four real
   providers elsewhere.
 
 ## Scenario SR-MVP-02: Streaming Chat Completions
@@ -481,7 +479,7 @@ request evidence.
 - Codex CLI is installed.
 - `$DOGFOOD_PROJECT` points to the selected dogfood project.
 - The dogfood project is disposable.
-- At least two real provider credentials are available for the full MVP gate.
+- At least four real providers are available for the full MVP gate.
 
 ### Setup
 
@@ -500,7 +498,7 @@ codex exec \
   -c 'model_providers.steadyroute.base_url="http://127.0.0.1:3001/v1"' \
   -c 'model_providers.steadyroute.wire_api="responses"' \
   -c 'model_providers.steadyroute.env_key="STEADYROUTE_LOCAL_KEY"' \
-  'Inspect this repo, add a minimal validation command for examples/provider.example.yaml against schema/catalog.schema.json, run the project test or validation command, fix failures caused by your change, and summarize the changed files and final command result. Keep the change narrow.' \
+  'Build LaunchBoard, a small full-stack launch tracker for indie products, in this empty project. Create Dashboard, Products, Product Detail, and Settings pages. Add API routes to list products, create products, read a product, update a product, and add launch checklist tasks. Use SQLite, JSON-file storage, or in-memory storage. Include forms, filtering, a launch checklist, notes or activity timeline, and team/settings state. Install dependencies, run a real build/test/lint/typecheck command, fix failures caused by your implementation, and summarize changed files plus the final verification command.' \
   2>&1 | tee "$SR_EVIDENCE_DIR/03-codex-responses.txt"
 ```
 
@@ -545,7 +543,9 @@ Explain for at least one Codex request id must show:
 
 - Codex modifies the dogfood project in a real way.
 - Codex runs a real validation or test command and reports the final result.
-- Git diff in `$DOGFOOD_PROJECT` shows meaningful changes related to the task.
+- Git diff in `$DOGFOOD_PROJECT` shows a multi-page full-stack application with
+  frontend routes, API routes, data handling, and verification scripts or
+  commands.
 - SteadyRoute explain proves the Codex request used `/v1/responses`.
 
 ### Fail Criteria
@@ -560,25 +560,27 @@ Explain for at least one Codex request id must show:
 Skip only if Codex CLI is not locally available. A skip here blocks the minimum
 MVP acceptance gate because Codex CLI Responses integration is required.
 
-## Scenario SR-MVP-04: Two-Provider End-to-End Provider Matrix
+## Scenario SR-MVP-04: Four-Provider End-to-End Provider Matrix
 
 ### Purpose
 
-Verify that at least two real providers work through SteadyRoute end to end.
+Verify that at least four real providers work through SteadyRoute end to end.
 
 ### Prerequisites
 
 - Scenario SR-MVP-01 passed for at least one provider.
-- At least two preferred provider credentials are present or can be added through
-  `steadyroute keys add`.
+- At least four preferred providers are available through anonymous access,
+  environment variables, `steadyroute keys add`, or `steadyroute providers auth
+  <provider>`.
 
 ### Setup
 
-For each available provider among OpenRouter, Gemini, Groq, and GitHub Models,
-run one non-streaming request with a provider allowlist or exact provider route.
-The exact routing syntax may differ by implementation, but the request must go
-through SteadyRoute and must constrain the candidate set to the provider being
-validated.
+For each available provider among OpenRouter, Gemini, Groq, GitHub Models,
+Kilo, Pollinations, LLM7, Cloudflare, Cerebras, NVIDIA, Mistral, OVH, and other
+reference-project providers, run one non-streaming request with a provider
+allowlist or exact provider route. The exact routing syntax may differ by
+implementation, but the request must go through SteadyRoute and must constrain
+the candidate set to the provider being validated.
 
 Illustrative shape:
 
@@ -627,12 +629,17 @@ For each provider request, explain must show:
 
 ### Pass Criteria
 
-- At least two real providers complete a request through SteadyRoute.
+- At least four real providers complete a request through SteadyRoute.
+- At least two successful providers come from the primary free or low-cost set:
+  OpenRouter, Gemini, Groq, GitHub Models, Kilo, Pollinations, LLM7,
+  Cloudflare, Cerebras, NVIDIA, or Mistral.
+- At least one anonymous or keyless provider works without user login.
 - Each has a distinct explainable request id and provider/model evidence.
 
 ### Fail Criteria
 
-- Two successful responses actually come from the same upstream provider.
+- Multiple successful responses actually come from the same upstream provider
+  while being counted as distinct providers.
 - SteadyRoute silently ignores the provider constraint.
 - Provider direct calls are used as acceptance evidence.
 
@@ -640,7 +647,7 @@ For each provider request, explain must show:
 
 An individual provider may be skipped if no credential is available, the account
 is not authorized, the provider is unavailable in the tester's region, or using
-the provider would violate its terms. The minimum MVP gate still requires two
+the provider would violate its terms. The minimum MVP gate still requires four
 real providers to pass.
 
 ## Scenario SR-MVP-05: Optional Additional Coding Client
@@ -1185,8 +1192,9 @@ The MVP is accepted only if all required conditions are met:
 3. Scenario SR-MVP-01 passes through `/v1/chat/completions`.
 4. Scenario SR-MVP-02 passes with visible streaming and stream ledger evidence.
 5. Scenario SR-MVP-03 passes with Codex CLI using `/v1/responses`.
-6. Scenario SR-MVP-04 passes for at least two real providers among OpenRouter,
-   Gemini, Groq, and GitHub Models.
+6. Scenario SR-MVP-04 passes for at least four real providers, including at
+   least two from OpenRouter, Gemini, Groq, GitHub Models, Kilo, Pollinations,
+   LLM7, Cloudflare, Cerebras, NVIDIA, or Mistral.
 7. Scenario SR-MVP-06 records tool-call or structured request-shape conformance
    evidence for a real SteadyRoute HTTP request.
 8. Scenario SR-MVP-07 passes with a classified controlled failure.
@@ -1204,7 +1212,8 @@ unexplained client success is a failure for MVP acceptance.
 
 1. Run SR-MVP-P0 to build the provider coverage benchmark.
 2. Run SR-MVP-00 to confirm local state, bind address, and provider readiness.
-3. Run SR-MVP-04 for provider matrix health and pick two providers for the gate.
+3. Run SR-MVP-04 for provider matrix health and pick four providers for the
+   gate.
 4. Run SR-MVP-01 for basic Chat Completions.
 5. Run SR-MVP-02 for streaming.
 6. Run SR-MVP-10 for direct Responses.
