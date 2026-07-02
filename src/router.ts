@@ -59,7 +59,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
   });
 
   if (candidates.length === 0) {
-    const errorClass: ErrorClass = skips.some((skip) => String((skip as { reason?: unknown }).reason).includes("tool_unsupported")) ? "tool_unsupported" : "request_invalid";
+    const errorClass = noCandidateErrorClass(skips);
     finalizeRequest(input.db, {
       requestId: input.requestId,
       finalStatus: "failed",
@@ -225,6 +225,13 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
     fallbackDecisions
   });
   return { requestId: input.requestId, response: new Response(JSON.stringify(errorBody), { status, headers: { "content-type": "application/json", "x-steadyroute-request-id": input.requestId } }) };
+}
+
+function noCandidateErrorClass(skips: unknown[]): ErrorClass {
+  const reasons = skips.map((skip) => String((skip as { reason?: unknown }).reason ?? ""));
+  if (reasons.some((reason) => reason.includes("tool_unsupported"))) return "tool_unsupported";
+  if (reasons.some((reason) => /api key|provider key|github cli|token|log in/i.test(reason))) return "auth_failed";
+  return "request_invalid";
 }
 
 function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {

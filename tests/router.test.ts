@@ -100,6 +100,32 @@ describe("router fallback", () => {
     expect(explanation).toContain("key=anonymous");
   });
 
+  it("classifies an allowlisted missing provider key as auth_failed", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-missing-key-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("GROQ_API_KEY", "");
+    const db = openDb();
+
+    const result = await routeRequest({
+      requestId: "req_missing_key",
+      db,
+      endpoint: "/v1/chat/completions",
+      method: "POST",
+      body: { model: "steadyroute:auto", messages: [{ role: "user", content: "hi" }] },
+      headers: { "x-steadyroute-provider-allowlist": "groq" },
+      traceFullBodies: true,
+      providerOrder: ["groq"]
+    });
+
+    expect(result.response.status).toBe(401);
+    const body = await result.response.json() as { error?: { code?: string } };
+    expect(body.error?.code).toBe("auth_failed");
+    const explanation = explainRequest(db, "req_missing_key");
+    expect(explanation).toContain("Final error class: auth_failed");
+    expect(explanation).toContain("Create or provide a Groq API key");
+  });
+
   it("closes a stream after a terminal finish chunk without waiting for upstream done", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-terminal-stream-"));
     homes.push(home);
