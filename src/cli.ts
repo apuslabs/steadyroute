@@ -45,7 +45,7 @@ program
       console.log("No steadyroute runtime file found.");
       return;
     }
-    if (!runtime.state) {
+    if (runtime.status === "stale") {
       removeRuntimeState();
       console.log(`Removed stale steadyroute runtime metadata: ${runtime.reason}`);
       return;
