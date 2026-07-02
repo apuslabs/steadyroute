@@ -212,6 +212,80 @@ describe("router fallback", () => {
     expect(explanation).toContain("Final provider/model: opencode_free / big-pickle");
   });
 
+  it("returns context_too_large when an exact model cannot fit the estimated request", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-context-limit-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    const db = openDb();
+    globalThis.fetch = vi.fn() as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_context_exact",
+      db,
+      endpoint: "/v1/chat/completions",
+      method: "POST",
+      body: {
+        model: "steadyroute:openrouter/openrouter/free",
+        messages: [{ role: "user", content: "summarize this large request" }],
+        max_tokens: 300000
+      },
+      headers: {},
+      traceFullBodies: true,
+      providerOrder: ["openrouter"]
+    });
+
+    expect(result.response.status).toBe(413);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    const body = await result.response.json() as { error?: { code?: string } };
+    expect(body.error?.code).toBe("context_too_large");
+    const explanation = explainRequest(db, "req_context_exact");
+    expect(explanation).toContain("Final error class: context_too_large");
+    expect(explanation).toContain("context_too_large: estimated");
+    expect(explanation).toContain("exceeds 200000 context window");
+  });
+
+  it("skips small-context candidates and falls through to a larger context model", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-context-fallback-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    const db = openDb();
+    let upstreamModel = "";
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const upstreamBody = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      upstreamModel = upstreamBody.model ?? "";
+      return new Response(JSON.stringify({
+        id: "chatcmpl_large_context",
+        model: upstreamModel,
+        choices: [{ message: { role: "assistant", content: "large context ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_context_fallback",
+      db,
+      endpoint: "/v1/responses",
+      method: "POST",
+      body: {
+        model: "steadyroute:auto",
+        input: "inspect a large codebase and produce a patch",
+        max_output_tokens: 300000
+      },
+      headers: { "x-steadyroute-provider-allowlist": "openrouter" },
+      traceFullBodies: true,
+      providerOrder: ["openrouter"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(upstreamModel).toBe("qwen/qwen3-coder:free");
+    const explanation = explainRequest(db, "req_context_fallback");
+    expect(explanation).toContain("Final provider/model: openrouter / qwen/qwen3-coder:free");
+    expect(explanation).toContain("openrouter/openrouter/free: context_too_large");
+    expect(explanation).toContain("exceeds 200000 context window");
+  });
+
   it("classifies an allowlisted missing provider key as auth_failed", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-missing-key-test-"));
     homes.push(home);

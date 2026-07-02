@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.13 - 2026-07-02
+
+- Added router-side context-window preflight so oversized requests skip too-small models before provider calls and report `context_too_large` with ledger/explain evidence.
+
 ## 0.1.12 - 2026-07-02
 
 - Added `steadyroute integrations list/apply/rollback codex` to generate and remove a local Codex provider guide without modifying global Codex config.

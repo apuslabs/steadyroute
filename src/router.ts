@@ -236,6 +236,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
 function noCandidateErrorClass(skips: unknown[]): ErrorClass {
   const reasons = skips.map((skip) => String((skip as { reason?: unknown }).reason ?? ""));
   if (reasons.some((reason) => reason.includes("tool_unsupported"))) return "tool_unsupported";
+  if (reasons.some((reason) => reason.includes("context_too_large"))) return "context_too_large";
   if (reasons.some((reason) => /api key|provider key|github cli|token|log in/i.test(reason))) return "auth_failed";
   return "request_invalid";
 }
@@ -251,6 +252,7 @@ function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; p
   const ordered = orderProviders(args.providerOrder);
   const toolsPresent = Array.isArray(args.body.tools) ? args.body.tools.length > 0 : Boolean(args.body.tools);
   const stream = args.body.stream === true;
+  const estimatedTokens = estimateRequestedTokens(args.body);
 
   for (const provider of ordered) {
     if (args.routeHeaders.providerAllowlist.length > 0 && !args.routeHeaders.providerAllowlist.includes(provider.id)) {
@@ -277,6 +279,16 @@ function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; p
       }
       if (stream && model.capabilities.streaming === "unsupported") {
         skips.push({ provider: provider.id, model: model.id, reason: "streaming unsupported by catalog" });
+        continue;
+      }
+      if (model.contextWindow !== null && estimatedTokens > model.contextWindow) {
+        skips.push({
+          provider: provider.id,
+          model: model.id,
+          reason: `context_too_large: estimated ${estimatedTokens} requested tokens exceeds ${model.contextWindow} context window`,
+          estimated_tokens: estimatedTokens,
+          context_window: model.contextWindow
+        });
         continue;
       }
       const cooldown = getActiveCooldown(args.db, provider.id, model.id, key.alias);
@@ -404,6 +416,20 @@ function candidateSummary(candidate: RouteCandidate): Record<string, unknown> {
 
 function hasRequestTools(body: ChatRequestBody): boolean {
   return Array.isArray(body.tools) ? body.tools.length > 0 : Boolean(body.tools);
+}
+
+function estimateRequestedTokens(body: ChatRequestBody): number {
+  const promptText = promptTextFromChat(body);
+  const promptTokens = Math.ceil(promptText.length / 4);
+  const maxOutput = firstPositiveNumber(body.max_tokens, body.max_completion_tokens);
+  return promptTokens + (maxOutput ?? 4096);
+}
+
+function firstPositiveNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.ceil(value);
+  }
+  return null;
 }
 
 function splitHeader(value: string | string[] | undefined): string[] {
