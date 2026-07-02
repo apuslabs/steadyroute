@@ -21,6 +21,9 @@ describe("provider commands", () => {
     const rows = providerListRows();
     expect(rows.some((row) => row.id === "kilo" && row.keyless)).toBe(true);
     expect(rows.some((row) => row.id === "openrouter" && row.auth_method === "api_key")).toBe(true);
+    expect(rows.find((row) => row.id === "groq")?.status).toBe("blocked-by-auth");
+    expect(rows.find((row) => row.id === "gemini")?.status).toBe("blocked-by-auth");
+    expect(rows.every((row) => ["verified", "implemented-unverified", "blocked-by-auth", "catalog-only", "broken", "deprecated"].includes(row.status))).toBe(true);
     expect(formatProviderList(rows)).toContain("openrouter\tstatus=verified\tauth=api_key");
   });
 

@@ -19,7 +19,7 @@ export type ErrorClass =
 export type EvidenceSource = "provider_reported" | "observed" | "estimated" | "unknown" | "stale";
 
 export type CapabilityState = "known" | "estimated" | "unknown" | "community-reported" | "unsupported";
-export type ProviderStatus = "verified" | "configured" | "catalog-only" | "broken" | "deprecated";
+export type ProviderStatus = "verified" | "implemented-unverified" | "blocked-by-auth" | "catalog-only" | "broken" | "deprecated";
 
 export interface ErrorBehavior {
   retryable: boolean;

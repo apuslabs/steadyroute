@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.11 - 2026-07-02
+
+- Normalized provider statuses to the MVP acceptance taxonomy, including `blocked-by-auth` for Groq and Gemini until credentials are provided.
+
 ## 0.1.10 - 2026-07-02
 
 - Added `steadyroute config paths` and `steadyroute config show` for explicit local state and configuration inspection.

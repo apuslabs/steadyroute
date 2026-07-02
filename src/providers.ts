@@ -184,7 +184,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   {
     id: "groq",
     displayName: "Groq",
-    status: "configured",
+    status: "blocked-by-auth",
     apiShape: "openai-compatible",
     baseUrl: "https://api.groq.com/openai/v1/chat/completions",
     auth: { method: "api_key", env: ["GROQ_API_KEY"], required: true, humanAction: "Create or provide a Groq API key; no payment should be required for free-tier validation." },
@@ -210,7 +210,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   {
     id: "gemini",
     displayName: "Gemini API",
-    status: "configured",
+    status: "blocked-by-auth",
     apiShape: "gemini",
     baseUrl: "https://generativelanguage.googleapis.com/v1beta/models",
     auth: { method: "api_key", env: ["GEMINI_API_KEY", "GOOGLE_API_KEY"], required: true, humanAction: "Create or provide a Gemini API key from AI Studio; no payment should be required for free-tier validation." },
