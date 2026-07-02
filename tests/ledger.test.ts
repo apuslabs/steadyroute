@@ -74,4 +74,73 @@ describe("SQLite ledger", () => {
     expect(explanation).toContain("github_models / gpt-4o-mini");
     expect(explanation).toContain("Attempts:");
   });
+
+  it("explains tool request shape and response tool calls", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-tool-ledger-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    const db = openDb();
+    createRequest(db, {
+      requestId: "req_tools",
+      endpoint: "/v1/chat/completions",
+      protocol: "chat_completions",
+      method: "POST",
+      client: "curl",
+      modelRequested: "steadyroute:auto",
+      routePolicy: "auto",
+      providerAllowlist: ["github_models"],
+      providerDenylist: [],
+      requestBody: {
+        model: "steadyroute:auto",
+        messages: [{ role: "user", content: "use tool" }],
+        tools: [{ type: "function", function: { name: "report_package", parameters: { type: "object" } } }]
+      },
+      catalogSource: "test",
+      candidates: [{ provider: "github_models", model: "gpt-4o-mini", capabilities: { toolCalls: "known" } }],
+      skips: [],
+      traceFullBodies: true
+    });
+    recordAttempt(db, {
+      requestId: "req_tools",
+      attemptIndex: 1,
+      provider: "github_models",
+      model: "gpt-4o-mini",
+      keyAlias: "gh-cli",
+      status: "success",
+      errorClass: null,
+      behavior: null,
+      upstreamStatus: 200,
+      requestBody: { ok: true },
+      responseBody: {
+        choices: [{ message: { tool_calls: [{ type: "function", function: { name: "report_package", arguments: "{}" } }] } }]
+      },
+      responseHeaders: {},
+      safeErrorExcerpt: "",
+      startedAt: new Date().toISOString(),
+      endedAt: new Date().toISOString(),
+      latencyMs: 1,
+      usage: unknownUsage(),
+      fallbackDecision: null
+    });
+    finalizeRequest(db, {
+      requestId: "req_tools",
+      finalStatus: "success",
+      httpStatus: 200,
+      finalProvider: "github_models",
+      finalModel: "gpt-4o-mini",
+      finalErrorClass: null,
+      responseBody: {
+        choices: [{ message: { tool_calls: [{ type: "function", function: { name: "report_package", arguments: "{}" } }] } }]
+      },
+      usage: unknownUsage(),
+      streamMetadata: null,
+      fallbackDecisions: []
+    });
+
+    const explanation = explainRequest(db, "req_tools");
+    expect(explanation).toContain("tools_present: true");
+    expect(explanation).toContain("tool_names: report_package");
+    expect(explanation).toContain("response_tool_calls: report_package");
+    expect(explanation).toContain("tool_calls=known");
+  });
 });

@@ -24,10 +24,22 @@ export function explainRequest(db: Database.Database, requestId: string): string
   }
 
   lines.push("");
+  lines.push("Request shape:");
+  const requestBody = parseJsonObject(request.request_body_json);
+  const toolNames = extractToolNames(requestBody.tools);
+  lines.push(`- stream: ${requestBody.stream === true}`);
+  lines.push(`- tools_present: ${toolNames.length > 0}`);
+  if (toolNames.length > 0) lines.push(`- tool_names: ${toolNames.join(", ")}`);
+  const responseBody = parseJsonObject(request.response_body_json);
+  const responseToolCalls = extractResponseToolCalls(responseBody);
+  if (responseToolCalls.length > 0) lines.push(`- response_tool_calls: ${responseToolCalls.join(", ")}`);
+
+  lines.push("");
   lines.push("Candidate summary:");
   for (const candidate of parseJsonArray(request.candidates_json)) {
     const c = candidate as Record<string, unknown>;
-    lines.push(`- ${c.provider}/${c.model} key=${c.key_alias ?? "unknown"} exact=${c.exact ? "yes" : "no"}`);
+    const capabilities = c.capabilities && typeof c.capabilities === "object" ? c.capabilities as Record<string, unknown> : {};
+    lines.push(`- ${c.provider}/${c.model} key=${c.key_alias ?? "unknown"} exact=${c.exact ? "yes" : "no"} tool_calls=${capabilities.toolCalls ?? "unknown"}`);
   }
   const skips = parseJsonArray(request.skips_json);
   if (skips.length > 0) {
@@ -101,4 +113,31 @@ function formatUsage(value: unknown): string {
   if (!value || typeof value !== "object") return "unknown";
   const v = value as Record<string, unknown>;
   return `${v.value ?? "unknown"} (${v.source ?? "unknown"})`;
+}
+
+function extractToolNames(tools: unknown): string[] {
+  if (!Array.isArray(tools)) return [];
+  const names: string[] = [];
+  for (const tool of tools) {
+    if (!tool || typeof tool !== "object") continue;
+    const record = tool as Record<string, unknown>;
+    const fn = record.function && typeof record.function === "object" ? record.function as Record<string, unknown> : null;
+    const name = typeof fn?.name === "string" ? fn.name : typeof record.name === "string" ? record.name : null;
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+function extractResponseToolCalls(body: Record<string, unknown>): string[] {
+  const names: string[] = [];
+  const choices = Array.isArray(body.choices) ? body.choices as Array<Record<string, unknown>> : [];
+  for (const choice of choices) {
+    const message = choice.message && typeof choice.message === "object" ? choice.message as Record<string, unknown> : {};
+    const calls = Array.isArray(message.tool_calls) ? message.tool_calls as Array<Record<string, unknown>> : [];
+    for (const call of calls) {
+      const fn = call.function && typeof call.function === "object" ? call.function as Record<string, unknown> : {};
+      if (typeof fn.name === "string") names.push(fn.name);
+    }
+  }
+  return names;
 }
