@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.7 - 2026-07-02
+
+- Added `steadyroute keys list` and `steadyroute keys remove` for CLI-only provider key management.
+- Kept key listing redacted by showing only provider, alias, and timestamps.
+
 ## 0.1.6 - 2026-07-02
 
 - Added GitHub Actions release automation for tagged npm publishes and GitHub Releases.

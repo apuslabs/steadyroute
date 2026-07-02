@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
 import { loadConfig } from "./config.js";
-import { addProviderKey, openDb } from "./db.js";
+import { addProviderKey, listProviderKeys, openDb, removeProviderKey } from "./db.js";
 import { buildDoctorReport, formatDoctor } from "./doctor.js";
 import { explainRequest } from "./explain.js";
 import { resolvePaths } from "./paths.js";
@@ -113,6 +113,42 @@ keys
     const db = openDb();
     addProviderKey(db, provider, options.alias, value.trim());
     console.log(`Stored encrypted key for ${provider}/${options.alias}`);
+  });
+
+keys
+  .command("list")
+  .description("List locally stored provider key aliases without printing secrets")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const db = openDb();
+    const rows = listProviderKeys(db);
+    if (options.json) {
+      console.log(JSON.stringify(rows, null, 2));
+      return;
+    }
+    if (rows.length === 0) {
+      console.log("No stored provider keys.");
+      return;
+    }
+    for (const row of rows) {
+      console.log(`${row.provider}/${row.alias}\tcreated=${row.created_at}\tupdated=${row.updated_at}`);
+    }
+  });
+
+keys
+  .command("remove <provider>")
+  .alias("rm")
+  .description("Remove a locally stored provider key alias")
+  .option("--alias <alias>", "Key alias", "default")
+  .action((provider, options) => {
+    const db = openDb();
+    const removed = removeProviderKey(db, provider, options.alias);
+    if (!removed) {
+      console.error(`No stored key found for ${provider}/${options.alias}`);
+      process.exitCode = 1;
+      return;
+    }
+    console.log(`Removed stored key for ${provider}/${options.alias}`);
   });
 
 const providers = program.command("providers").description("Inspect, auth, and test providers");

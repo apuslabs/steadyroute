@@ -162,6 +162,11 @@ export function listProviderKeys(db: Database.Database): Array<{ provider: strin
   }>;
 }
 
+export function removeProviderKey(db: Database.Database, provider: string, alias: string): boolean {
+  const result = db.prepare("DELETE FROM provider_keys WHERE provider = ? AND alias = ?").run(provider, alias);
+  return result.changes > 0;
+}
+
 export function createRequest(db: Database.Database, input: RequestRecordInput): void {
   db.prepare(`
     INSERT INTO requests (

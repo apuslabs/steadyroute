@@ -92,6 +92,8 @@ Add an optional provider key only when you want keyed providers:
 
 ```bash
 printf '%s' "$OPENROUTER_API_KEY" | steadyroute keys add openrouter
+steadyroute keys list
+steadyroute keys remove openrouter
 ```
 
 ## Local Endpoint
