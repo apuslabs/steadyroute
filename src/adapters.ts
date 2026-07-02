@@ -1,5 +1,5 @@
 import { classifyProviderFailure, safeExcerpt, SteadyRouteError } from "./errors.js";
-import { completeResponseStream, createResponseStreamState, responseStreamEventsFromChatChunk } from "./protocol.js";
+import { completeResponseStream, createResponseStreamState, responseStreamEventsFromChatChunk, type ResponseStreamState } from "./protocol.js";
 import { estimateUsageFromText, unknownUsage, usageFromOpenAiBody } from "./usage.js";
 import type { ChatRequestBody, KeyMaterial, ProviderAttemptResult, ProviderDefinition, ProviderModel, StreamMetadata } from "./types.js";
 
@@ -150,7 +150,7 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
       const reader = body.getReader();
       let buffer = "";
       try {
-        while (true) {
+        readLoop: while (true) {
           const { value, done } = await reader.read();
           if (done) break;
           buffer += decoder.decode(value, { stream: true });
@@ -163,7 +163,7 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
               if (data.trim() === "[DONE]") {
                 metadata.done_seen = true;
                 if (responseMode === "chat") controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-                continue;
+                break readLoop;
               }
               const parsed = parseJson(data);
               if (!parsed || typeof parsed !== "object") continue;
@@ -183,6 +183,7 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
               } else {
                 controller.enqueue(encoder.encode(`data: ${JSON.stringify(lastChunk)}\n\n`));
               }
+              if (metadata.finish_reason) break readLoop;
             }
           }
         }
@@ -193,14 +194,18 @@ function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string,
           }
         } else if (!metadata.done_seen) controller.enqueue(encoder.encode("data: [DONE]\n\n"));
         metadata.done_seen = true;
-        if (metadata.finish_reason === "tool_calls" && !sawOpenAiToolCalls) {
-          metadata.interrupted = true;
-          metadata.error_class = "tool_unsupported";
-        }
+        markUnsupportedToolFinish(metadata, sawOpenAiToolCalls);
         controller.close();
       } catch (error) {
-        metadata.interrupted = true;
-        controller.error(error);
+        markUnsupportedToolFinish(metadata, sawOpenAiToolCalls);
+        if (!metadata.interrupted && hasTerminalStream(metadata, responseState)) {
+          metadata.done_seen = true;
+          tryClose(controller);
+        } else {
+          metadata.interrupted = true;
+          metadata.error_class ??= "stream_interrupted";
+          tryError(controller, error);
+        }
       } finally {
         reader.releaseLock();
         resolveMetadata({
@@ -276,8 +281,14 @@ function wrapGeminiSseStream(body: ReadableStream<Uint8Array>, model: string, he
         }
         controller.close();
       } catch (error) {
-        metadata.interrupted = true;
-        controller.error(error);
+        if (hasTerminalStream(metadata, responseState)) {
+          metadata.done_seen = true;
+          tryClose(controller);
+        } else {
+          metadata.interrupted = true;
+          metadata.error_class ??= "stream_interrupted";
+          tryError(controller, error);
+        }
       } finally {
         reader.releaseLock();
         resolveMetadata({
@@ -293,6 +304,33 @@ function wrapGeminiSseStream(body: ReadableStream<Uint8Array>, model: string, he
     headers,
     metadataPromise
   };
+}
+
+function markUnsupportedToolFinish(metadata: StreamMetadata, sawOpenAiToolCalls: boolean): void {
+  if (metadata.finish_reason === "tool_calls" && !sawOpenAiToolCalls) {
+    metadata.interrupted = true;
+    metadata.error_class = "tool_unsupported";
+  }
+}
+
+function hasTerminalStream(metadata: StreamMetadata, responseState: ResponseStreamState): boolean {
+  return metadata.done_seen || metadata.finish_reason !== null || responseState.completed;
+}
+
+function tryClose(controller: ReadableStreamDefaultController<Uint8Array>): void {
+  try {
+    controller.close();
+  } catch {
+    // The downstream client may already have closed after receiving terminal events.
+  }
+}
+
+function tryError(controller: ReadableStreamDefaultController<Uint8Array>, error: unknown): void {
+  try {
+    controller.error(error);
+  } catch {
+    // The controller can already be closed after a client disconnect.
+  }
 }
 
 function buildOpenAiBody(body: ChatRequestBody, model: string, stream: boolean): Record<string, unknown> {

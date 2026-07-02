@@ -99,4 +99,85 @@ describe("router fallback", () => {
     expect(explanation).toContain("Final provider/model: opencode_free / big-pickle");
     expect(explanation).toContain("key=anonymous");
   });
+
+  it("closes a stream after a terminal finish chunk without waiting for upstream done", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-terminal-stream-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    const db = openDb();
+    globalThis.fetch = vi.fn(async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode([
+            "data: {\"id\":\"chatcmpl_terminal\",\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":null}]}",
+            "",
+            "data: {\"id\":\"chatcmpl_terminal\",\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}",
+            "",
+            ""
+          ].join("\n")));
+        }
+      });
+      return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_terminal_stream",
+      db,
+      endpoint: "/v1/responses",
+      method: "POST",
+      body: { model: "steadyroute:kilo/openrouter/free", input: "hi", stream: true },
+      headers: {},
+      traceFullBodies: true,
+      providerOrder: ["kilo"]
+    });
+
+    expect(result.response.status).toBe(200);
+    const responseText = await Promise.race([
+      result.response.text(),
+      new Promise<string>((_resolve, reject) => setTimeout(() => reject(new Error("stream did not close after terminal chunk")), 500))
+    ]);
+    expect(responseText).toContain("response.completed");
+    await result.metadataDone;
+    const explanation = explainRequest(db, "req_terminal_stream");
+    expect(explanation).toContain("Status: success (HTTP 200)");
+    expect(explanation).toContain("Final provider/model: kilo / openrouter/free");
+    expect(explanation).toContain("- finish_reason: stop");
+    expect(explanation).not.toContain("Final error class: stream_interrupted");
+  });
+
+  it("keeps classifying streams without a terminal finish as interrupted", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-interrupted-stream-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    const db = openDb();
+    globalThis.fetch = vi.fn(async () => {
+      const stream = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode(
+            "data: {\"id\":\"chatcmpl_interrupted\",\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":null}]}\n\n"
+          ));
+          controller.error(new Error("upstream ended mid-stream"));
+        }
+      });
+      return new Response(stream, { status: 200, headers: { "content-type": "text/event-stream" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_interrupted_stream",
+      db,
+      endpoint: "/v1/responses",
+      method: "POST",
+      body: { model: "steadyroute:kilo/openrouter/free", input: "hi", stream: true },
+      headers: {},
+      traceFullBodies: true,
+      providerOrder: ["kilo"]
+    });
+
+    expect(result.response.status).toBe(200);
+    await expect(result.response.text()).rejects.toThrow("upstream ended mid-stream");
+    await result.metadataDone;
+    const explanation = explainRequest(db, "req_interrupted_stream");
+    expect(explanation).toContain("Status: failed (HTTP 502)");
+    expect(explanation).toContain("Final error class: stream_interrupted");
+  });
 });
