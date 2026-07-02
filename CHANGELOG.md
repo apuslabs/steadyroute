@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.10 - 2026-07-02
+
+- Added `steadyroute config paths` and `steadyroute config show` for explicit local state and configuration inspection.
+
 ## 0.1.9 - 2026-07-02
 
 - Added explicit `free-first` route policy ordering for no-login and free-provider routes.

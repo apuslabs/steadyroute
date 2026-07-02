@@ -68,6 +68,13 @@ List available models:
 steadyroute models
 ```
 
+Inspect local paths and configuration:
+
+```bash
+steadyroute config paths
+steadyroute config show
+```
+
 Send a request through the default free/no-key route:
 
 ```bash

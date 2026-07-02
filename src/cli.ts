@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
 import { loadConfig } from "./config.js";
+import { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 import { exportDiagnostics } from "./diagnostics.js";
 import { addProviderKey, listProviderKeys, openDb, removeProviderKey } from "./db.js";
 import { buildDoctorReport, formatDoctor } from "./doctor.js";
@@ -96,6 +97,33 @@ program
     ];
     if (options.json) console.log(JSON.stringify(models, null, 2));
     else for (const model of models) console.log(`${model.id} provider=${model.provider} status=${model.provider_status ?? "n/a"}`);
+  });
+
+const configCommand = program.command("config").description("Inspect local configuration and state paths");
+configCommand
+  .command("paths")
+  .description("Show local config, ledger, key store, and runtime paths")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const rows = configPathRows();
+    if (options.json) {
+      console.log(JSON.stringify(rows, null, 2));
+      return;
+    }
+    console.log(formatConfigPaths(rows));
+  });
+
+configCommand
+  .command("show")
+  .description("Show local SteadyRoute configuration")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const config = configShowRows();
+    if (options.json) {
+      console.log(JSON.stringify(config, null, 2));
+      return;
+    }
+    console.log(formatConfigShow(config));
   });
 
 const keys = program.command("keys").description("Manage local provider keys");
