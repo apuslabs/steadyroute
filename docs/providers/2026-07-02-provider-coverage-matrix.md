@@ -105,13 +105,13 @@ Populate this section with request ids from the final SR-MVP acceptance run.
 
 | Scenario | Provider | Request id | Evidence bundle path | Result |
 | --- | --- | --- | --- | --- |
-| SR-MVP-01 | TBD | TBD | TBD | pending |
-| SR-MVP-02 | TBD | TBD | TBD | pending |
-| SR-MVP-03 | TBD | TBD | TBD | pending |
-| SR-MVP-04 provider 1 | GitHub Models | TBD | TBD | pending |
-| SR-MVP-04 provider 2 | Groq/Gemini/OpenRouter | TBD | TBD | blocked until a healthy second named provider is available |
-| SR-MVP-06 | TBD | TBD | TBD | pending |
-| SR-MVP-07 | TBD | TBD | TBD | pending |
-| SR-MVP-08 | TBD | TBD | TBD | pending |
-| SR-MVP-09 | TBD | TBD | TBD | pending |
-| SR-MVP-10 | TBD | TBD | TBD | pending |
+| SR-MVP-01 | GitHub Models | `hJQySrcLUAq10Rl2GM` | `.steadyroute-acceptance/20260702-112446` | passed with Node OpenAI SDK client through `/v1/chat/completions` |
+| SR-MVP-02 | GitHub Models | `wKbxEfNcgydl12g1Wr` | `.steadyroute-acceptance/20260702-112446` | passed with streaming SSE and ledger stream metadata |
+| SR-MVP-03 | TBD | TBD | TBD | pending; full catalog dogfood still required |
+| SR-MVP-04 provider 1 | GitHub Models | `zc8ENjvK63a8EKEg41` | `.steadyroute-acceptance/20260702-112446` | passed with provider allowlist |
+| SR-MVP-04 provider 2 | OpenRouter | `m5SKMJIBBsT9kV4mPo` | `.steadyroute-acceptance/20260702-112446` | failed with `auth_failed`; Groq request `PHc2hoyzrgUVoN28mz` and Gemini request `D_hfN-vuk-YdFaJuku` show missing-key skips |
+| SR-MVP-06 | GitHub Models | `ZIEJdKaItuECoRIfFx` | `.steadyroute-acceptance/20260702-112446` | passed; provider returned `report_package` tool call and explain shows tool request shape |
+| SR-MVP-07 | OpenRouter -> GitHub Models | `S17FhlRIisPY_66jrx` | `.steadyroute-acceptance/20260702-112446` | passed; invalid OpenRouter key classified `auth_failed`, then fallback succeeded |
+| SR-MVP-08 | GitHub Models / OpenRouter | `hJQySrcLUAq10Rl2GM`, `m5SKMJIBBsT9kV4mPo` | `.steadyroute-acceptance/20260702-112446` | partially covered; GitHub usage/rate-limit sources are labeled, OpenRouter unknown quota remains unknown |
+| SR-MVP-09 | GitHub Models | `bhwwX7hobfYqtSehv0` | `.steadyroute-acceptance/20260702-112446` | passed; pre-restart request explained after stop/start |
+| SR-MVP-10 | GitHub Models | `bhwwX7hobfYqtSehv0` | `.steadyroute-acceptance/20260702-112446` | passed for direct `/v1/responses` |
