@@ -115,7 +115,7 @@ export const PROVIDERS: ProviderDefinition[] = [
   {
     id: "openrouter",
     displayName: "OpenRouter",
-    status: "broken",
+    status: "verified",
     apiShape: "openai-compatible",
     baseUrl: "https://openrouter.ai/api/v1/chat/completions",
     auth: { method: "api_key", env: ["OPENROUTER_API_KEY"], required: true, humanAction: "Create or provide an OpenRouter API key with free-model access." },
@@ -169,10 +169,10 @@ export const PROVIDERS: ProviderDefinition[] = [
     ],
     catalogSource: "OpenRouter /models + reference research",
     evidence: [
-      "OpenRouter /models worked with the exported key during 2026-07-01 research.",
-      "OpenRouter chat returned 401 User not found for the available key, so it cannot count as a healthy provider until user/account action resolves auth."
+      "OpenRouter /models worked with an exported key during 2026-07-01 research.",
+      "OpenRouter chat succeeded through the published SteadyRoute npm CLI with an environment key on 2026-07-02."
     ],
-    notes: ["Requires valid OpenRouter account key; invalid keys are classified as auth_failed."]
+    notes: ["Requires a valid OpenRouter account key; invalid keys are classified as auth_failed."]
   },
   {
     id: "groq",

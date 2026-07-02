@@ -32,7 +32,7 @@ describe("server model discovery", () => {
     const openrouterModels = body.data.filter((model) => model.steadyroute?.provider === "openrouter");
     expect(openrouterModels.length).toBeGreaterThan(0);
     expect(openrouterModels.every((model) => model.steadyroute?.key_present === true)).toBe(true);
-    expect(openrouterModels.every((model) => model.steadyroute?.provider_status === "broken")).toBe(true);
+    expect(openrouterModels.every((model) => model.steadyroute?.provider_status === "verified")).toBe(true);
     expect(openrouterModels[0]?.steadyroute?.evidence.length).toBeGreaterThan(0);
 
     await app.close();
