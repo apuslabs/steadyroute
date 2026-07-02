@@ -100,6 +100,7 @@ The v0 router core is acceptable when:
 - `/v1/chat/completions` and `/v1/responses` both work for basic requests
 - request ledger records full prompt, response, route attempts, and failure class locally
 - `steadyroute explain <request-id>` can explain a successful or failed request
+- `steadyroute explain <request-id> --json` exposes the same trace in a stable machine-readable shape for acceptance checks
 - `steadyroute doctor` can report config, key, provider, model, and protocol health
 - failure handling is based on explicit error classes rather than a generic exhaustion message
 - no tests or demo flows rely on mock providers as the final acceptance path

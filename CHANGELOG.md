@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.16 - 2026-07-03
+
+- Added `steadyroute explain <request-id> --json` for stable machine-readable request trace and acceptance assertions.
+
 ## 0.1.15 - 2026-07-02
 
 - Added structured-output routing awareness for Chat `response_format` and Responses `text.format`, including JSON-mode candidate preference and `schema_rejected` skips for catalog-unsupported models.

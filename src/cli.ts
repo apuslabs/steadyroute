@@ -7,7 +7,7 @@ import { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } f
 import { exportDiagnostics } from "./diagnostics.js";
 import { addProviderKey, listProviderKeys, openDb, removeProviderKey } from "./db.js";
 import { buildDoctorReport, formatDoctor } from "./doctor.js";
-import { explainRequest } from "./explain.js";
+import { explainRequest, explainRequestJson } from "./explain.js";
 import { applyIntegration, formatIntegrationApply, formatIntegrationList, formatIntegrationRollback, integrationListRows, rollbackIntegration } from "./integrationCommands.js";
 import { resolvePaths } from "./paths.js";
 import { formatProviderList, formatProviderStatus, formatProviderTestResult, providerAuth, providerListRows, providerStatusRows, runProviderSmokeTest } from "./providerCommands.js";
@@ -275,9 +275,10 @@ integrations
 program
   .command("explain <requestId>")
   .description("Explain a recorded SteadyRoute request")
-  .action((requestId) => {
+  .option("--json", "Emit JSON")
+  .action((requestId, options) => {
     const db = openDb();
-    console.log(explainRequest(db, requestId));
+    console.log(options.json ? JSON.stringify(explainRequestJson(db, requestId), null, 2) : explainRequest(db, requestId));
   });
 
 program.parseAsync(process.argv).catch((error) => {

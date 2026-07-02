@@ -3,6 +3,38 @@ import { behaviorFor } from "./errors.js";
 import { readRequestWithAttempts } from "./db.js";
 import type { ErrorClass } from "./types.js";
 
+export interface ExplainJson {
+  found: boolean;
+  request_id: string;
+  trace_id: string | null;
+  span_id: string | null;
+  status: string | null;
+  http_status: number | null;
+  endpoint: string | null;
+  protocol: string | null;
+  client: string | null;
+  requested_model: string | null;
+  route_policy: string | null;
+  catalog_source: string | null;
+  final_provider: string | null;
+  final_model: string | null;
+  final_error_class: ErrorClass | null;
+  error_behavior: ReturnType<typeof behaviorFor> | null;
+  request_shape: {
+    stream: boolean;
+    tools_present: boolean;
+    tool_names: string[];
+    structured_output: string;
+  };
+  candidates: unknown[];
+  skips: unknown[];
+  attempts: Array<Record<string, unknown>>;
+  usage: Record<string, unknown>;
+  quota: Record<string, unknown>;
+  stream_metadata: Record<string, unknown>;
+  trace_full_bodies: boolean;
+}
+
 export function explainRequest(db: Database.Database, requestId: string): string {
   const data = readRequestWithAttempts(db, requestId);
   if (!data) return `No SteadyRoute request found for ${requestId}`;
@@ -86,6 +118,89 @@ export function explainRequest(db: Database.Database, requestId: string): string
   return lines.join("\n");
 }
 
+export function explainRequestJson(db: Database.Database, requestId: string): ExplainJson {
+  const data = readRequestWithAttempts(db, requestId);
+  if (!data) {
+    return {
+      found: false,
+      request_id: requestId,
+      trace_id: null,
+      span_id: null,
+      status: null,
+      http_status: null,
+      endpoint: null,
+      protocol: null,
+      client: null,
+      requested_model: null,
+      route_policy: null,
+      catalog_source: null,
+      final_provider: null,
+      final_model: null,
+      final_error_class: null,
+      error_behavior: null,
+      request_shape: { stream: false, tools_present: false, tool_names: [], structured_output: "none" },
+      candidates: [],
+      skips: [],
+      attempts: [],
+      usage: {},
+      quota: {},
+      stream_metadata: {},
+      trace_full_bodies: false
+    };
+  }
+
+  const request = data.request;
+  const requestBody = parseJsonObject(request.request_body_json);
+  const toolNames = extractToolNames(requestBody.tools);
+  const usage = parseJsonObject(request.usage_json);
+  const quota = usage.quota && typeof usage.quota === "object" ? usage.quota as Record<string, unknown> : {};
+  const finalClass = typeof request.final_error_class === "string" ? request.final_error_class as ErrorClass : null;
+  return {
+    found: true,
+    request_id: requestId,
+    trace_id: stringOrNull(request.trace_id),
+    span_id: stringOrNull(request.span_id),
+    status: stringOrNull(request.final_status),
+    http_status: numberOrNull(request.http_status),
+    endpoint: stringOrNull(request.endpoint),
+    protocol: stringOrNull(request.protocol),
+    client: stringOrNull(request.client),
+    requested_model: stringOrNull(request.model_requested),
+    route_policy: stringOrNull(request.route_policy),
+    catalog_source: stringOrNull(request.catalog_source),
+    final_provider: stringOrNull(request.final_provider),
+    final_model: stringOrNull(request.final_model),
+    final_error_class: finalClass,
+    error_behavior: finalClass ? behaviorFor(finalClass) : null,
+    request_shape: {
+      stream: requestBody.stream === true,
+      tools_present: toolNames.length > 0,
+      tool_names: toolNames,
+      structured_output: formatStructuredOutput(requestBody.response_format ?? responseFormatFromResponsesText(requestBody.text))
+    },
+    candidates: parseJsonArray(request.candidates_json),
+    skips: parseJsonArray(request.skips_json),
+    attempts: data.attempts.map((attempt) => ({
+      attempt_index: attempt.attempt_index,
+      provider: attempt.provider,
+      model: attempt.model,
+      key_alias: attempt.key_alias,
+      status: attempt.status,
+      error_class: attempt.error_class,
+      behavior: parseJsonObject(attempt.behavior_json),
+      upstream_status: attempt.upstream_status,
+      latency_ms: attempt.latency_ms,
+      usage: parseJsonObject(attempt.usage_json),
+      fallback_decision: attempt.fallback_decision,
+      safe_error_excerpt: attempt.safe_error_excerpt
+    })),
+    usage,
+    quota,
+    stream_metadata: parseJsonObject(request.stream_metadata_json),
+    trace_full_bodies: Boolean(request.trace_full_bodies)
+  };
+}
+
 function formatBehavior(cls: ErrorClass): string {
   const behavior = behaviorFor(cls);
   return `(retryable=${behavior.retryable}, fallbackable=${behavior.fallbackable}, cooldown=${behavior.cooldown}, user_actionable=${behavior.userActionable})`;
@@ -115,6 +230,14 @@ function formatUsage(value: unknown): string {
   if (!value || typeof value !== "object") return "unknown";
   const v = value as Record<string, unknown>;
   return `${v.value ?? "unknown"} (${v.source ?? "unknown"})`;
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function extractToolNames(tools: unknown): string[] {

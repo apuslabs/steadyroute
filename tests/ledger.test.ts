@@ -3,7 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { createRequest, finalizeRequest, openDb, recordAttempt } from "../src/db.js";
-import { explainRequest } from "../src/explain.js";
+import { explainRequest, explainRequestJson } from "../src/explain.js";
 import { unknownUsage } from "../src/usage.js";
 
 describe("SQLite ledger", () => {
@@ -74,6 +74,27 @@ describe("SQLite ledger", () => {
     expect(explanation).toContain("Trace:");
     expect(explanation).toContain("github_models / gpt-4o-mini");
     expect(explanation).toContain("Attempts:");
+
+    const json = explainRequestJson(reopened, "req_test");
+    expect(json).toMatchObject({
+      found: true,
+      request_id: "req_test",
+      endpoint: "/v1/chat/completions",
+      protocol: "chat_completions",
+      final_provider: "github_models",
+      final_model: "gpt-4o-mini",
+      request_shape: {
+        stream: false,
+        tools_present: false,
+        tool_names: [],
+        structured_output: "none"
+      },
+      trace_full_bodies: true
+    });
+    expect(json.trace_id).toMatch(/^[0-9a-f]{32}$/);
+    expect(json.span_id).toMatch(/^[0-9a-f]{16}$/);
+    expect(json.attempts).toHaveLength(1);
+    expect(json.attempts[0]).toMatchObject({ provider: "github_models", model: "gpt-4o-mini", status: "success", upstream_status: 200 });
   });
 
   it("explains tool request shape and response tool calls", () => {
@@ -145,5 +166,52 @@ describe("SQLite ledger", () => {
     expect(explanation).toContain("tool_names: report_package");
     expect(explanation).toContain("response_tool_calls: report_package");
     expect(explanation).toContain("tool_calls=known");
+
+    const json = explainRequestJson(db, "req_tools");
+    expect(json.request_shape).toEqual({
+      stream: false,
+      tools_present: true,
+      tool_names: ["report_package"],
+      structured_output: "json_object"
+    });
+    expect(json.candidates).toContainEqual(expect.objectContaining({
+      provider: "github_models",
+      model: "gpt-4o-mini",
+      capabilities: { toolCalls: "known" }
+    }));
+  });
+
+  it("returns a stable JSON not-found shape", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-explain-json-missing-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    const db = openDb();
+
+    expect(explainRequestJson(db, "req_missing")).toEqual({
+      found: false,
+      request_id: "req_missing",
+      trace_id: null,
+      span_id: null,
+      status: null,
+      http_status: null,
+      endpoint: null,
+      protocol: null,
+      client: null,
+      requested_model: null,
+      route_policy: null,
+      catalog_source: null,
+      final_provider: null,
+      final_model: null,
+      final_error_class: null,
+      error_behavior: null,
+      request_shape: { stream: false, tools_present: false, tool_names: [], structured_output: "none" },
+      candidates: [],
+      skips: [],
+      attempts: [],
+      usage: {},
+      quota: {},
+      stream_metadata: {},
+      trace_full_bodies: false
+    });
   });
 });

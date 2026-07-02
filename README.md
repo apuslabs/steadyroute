@@ -111,6 +111,7 @@ Explain the request:
 ```bash
 REQUEST_ID="$(awk 'tolower($1)=="x-steadyroute-request-id:" {print $2}' /tmp/steadyroute-headers.txt | tr -d '\r')"
 steadyroute explain "$REQUEST_ID"
+steadyroute explain "$REQUEST_ID" --json
 ```
 
 Export redacted local diagnostics when sharing evidence:
