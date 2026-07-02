@@ -32,6 +32,10 @@ export interface ProviderModel {
   id: string;
   label?: string;
   contextWindow: number | null;
+  priority?: {
+    auto?: number;
+    coding?: number;
+  };
   capabilities: {
     chat: CapabilityState;
     responses: CapabilityState;

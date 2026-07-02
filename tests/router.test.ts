@@ -100,6 +100,43 @@ describe("router fallback", () => {
     expect(explanation).toContain("key=anonymous");
   });
 
+  it("prefers coding-capable OpenRouter models for automatic Responses agent requests", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-coding-policy-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    vi.stubEnv("OPENROUTER_API_KEY", "sk-or-test");
+    vi.stubEnv("GITHUB_MODELS_TOKEN", "ghp-test");
+    const db = openDb();
+    let upstreamModel = "";
+    globalThis.fetch = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      const upstreamBody = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
+      upstreamModel = upstreamBody.model ?? "";
+      return new Response(JSON.stringify({
+        id: "chatcmpl_coding",
+        model: upstreamModel,
+        choices: [{ message: { role: "assistant", content: "coding ok" }, finish_reason: "stop" }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 }
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+
+    const result = await routeRequest({
+      requestId: "req_coding_policy",
+      db,
+      endpoint: "/v1/responses",
+      method: "POST",
+      body: { model: "steadyroute:auto", input: "inspect files and run tests" },
+      headers: {},
+      traceFullBodies: true,
+      providerOrder: ["opencode_free", "kilo", "openrouter", "github_models"]
+    });
+
+    expect(result.response.status).toBe(200);
+    expect(upstreamModel).toBe("qwen/qwen3-coder:free");
+    const explanation = explainRequest(db, "req_coding_policy");
+    expect(explanation).toContain("Final provider/model: openrouter / qwen/qwen3-coder:free");
+    expect(explanation).toContain("openrouter/qwen/qwen3-coder:free");
+  });
+
   it("classifies an allowlisted missing provider key as auth_failed", async () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-router-missing-key-test-"));
     homes.push(home);

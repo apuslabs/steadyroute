@@ -6,6 +6,7 @@ function model(id: string, partial: Partial<ProviderModel> = {}): ProviderModel 
     id,
     label: partial.label,
     contextWindow: partial.contextWindow ?? 128000,
+    priority: partial.priority,
     capabilities: {
       chat: partial.capabilities?.chat ?? "known",
       responses: partial.capabilities?.responses ?? "estimated",
@@ -123,21 +124,25 @@ export const PROVIDERS: ProviderDefinition[] = [
     models: [
       model("openrouter/free", {
         contextWindow: 200000,
+        priority: { coding: 30 },
         capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "known" },
         freeTier: { status: "known", notes: "OpenRouter free router; daily free caps are account-level and provider-controlled." }
       }),
       model("cohere/north-mini-code:free", {
         contextWindow: 256000,
+        priority: { coding: 70 },
         capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
         freeTier: { status: "known", notes: "Free model discovered from OpenRouter /models." }
       }),
       model("qwen/qwen3-coder:free", {
         contextWindow: 1048576,
+        priority: { coding: 5 },
         capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
         freeTier: { status: "known", notes: "Free coding model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
       }),
       model("qwen/qwen3-next-80b-a3b-instruct:free", {
         contextWindow: 262144,
+        priority: { coding: 10 },
         capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "known" },
         freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
       }),
@@ -148,11 +153,13 @@ export const PROVIDERS: ProviderDefinition[] = [
       }),
       model("openai/gpt-oss-120b:free", {
         contextWindow: 131072,
+        priority: { coding: 15 },
         capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
         freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
       }),
       model("openai/gpt-oss-20b:free", {
         contextWindow: 131072,
+        priority: { coding: 20 },
         capabilities: { chat: "known", responses: "estimated", streaming: "known", toolCalls: "known", jsonMode: "unknown" },
         freeTier: { status: "known", notes: "Free tool-capable model discovered from OpenRouter /models; exact capacity is account-level and provider-controlled." }
       }),

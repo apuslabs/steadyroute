@@ -36,6 +36,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
   const { candidates, skips } = buildCandidates({
     db: input.db,
     body: chatBody,
+    protocol,
     modelRequested,
     routeHeaders,
     providerOrder: policyOrder(routeHeaders, input.providerOrder)
@@ -234,7 +235,7 @@ function noCandidateErrorClass(skips: unknown[]): ErrorClass {
   return "request_invalid";
 }
 
-function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {
+function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; protocol: "responses" | "chat_completions"; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {
   if (args.routeHeaders.routePolicy === "dogfood-invalid-key-then-fallback") {
     return buildDogfoodFailureCandidates(args);
   }
@@ -281,10 +282,10 @@ function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; m
       candidates.push({ provider, model, key, exact: Boolean(exact) });
     }
   }
-  return { candidates, skips };
+  return { candidates: orderCandidates(candidates, args), skips };
 }
 
-function buildDogfoodFailureCandidates(args: { db: Database.Database; body: ChatRequestBody; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {
+function buildDogfoodFailureCandidates(args: { db: Database.Database; body: ChatRequestBody; protocol: "responses" | "chat_completions"; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {
   const normal = buildCandidates({ ...args, routeHeaders: { ...args.routeHeaders, routePolicy: null } });
   const openrouter = PROVIDERS.find((provider) => provider.id === "openrouter");
   const openrouterModel = openrouter?.models[0];
@@ -354,9 +355,28 @@ function orderProviders(order: string[]): ProviderDefinition[] {
   });
 }
 
+function orderCandidates(candidates: RouteCandidate[], args: { body: ChatRequestBody; protocol: "responses" | "chat_completions"; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): RouteCandidate[] {
+  const exact = parseExactModel(args.modelRequested);
+  if (exact || args.routeHeaders.providerAllowlist.length > 0 || args.routeHeaders.routePolicy) return candidates;
+
+  const codingRequest = args.protocol === "responses" || hasRequestTools(args.body);
+  if (!codingRequest) return candidates;
+
+  const providerRank = new Map(policyOrder({ ...args.routeHeaders, routePolicy: "stable-coding-agent" }, args.providerOrder).map((providerId, index) => [providerId, index]));
+  return [...candidates].sort((a, b) => {
+    const ap = a.model.priority?.coding ?? 100;
+    const bp = b.model.priority?.coding ?? 100;
+    if (ap !== bp) return ap - bp;
+    return (providerRank.get(a.provider.id) ?? 999) - (providerRank.get(b.provider.id) ?? 999);
+  });
+}
+
 function policyOrder(routeHeaders: RouteHeaders, defaultOrder: string[]): string[] {
   if (routeHeaders.routePolicy === "dogfood-invalid-key-then-fallback") {
     return ["openrouter", "github_models", "kilo", "groq", "gemini"];
+  }
+  if (routeHeaders.routePolicy === "stable-coding-agent") {
+    return ["openrouter", "github_models", "kilo", "opencode_free", "groq", "gemini"];
   }
   return defaultOrder;
 }
@@ -368,8 +388,13 @@ function candidateSummary(candidate: RouteCandidate): Record<string, unknown> {
     key_alias: candidate.key.alias,
     key_source: candidate.key.source,
     exact: candidate.exact,
+    priority: candidate.model.priority ?? null,
     capabilities: candidate.model.capabilities
   };
+}
+
+function hasRequestTools(body: ChatRequestBody): boolean {
+  return Array.isArray(body.tools) ? body.tools.length > 0 : Boolean(body.tools);
 }
 
 function splitHeader(value: string | string[] | undefined): string[] {

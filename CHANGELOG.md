@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.6 - 2026-07-02
+
+- Added GitHub Actions release automation for tagged npm publishes and GitHub Releases.
+- Prioritized coding-capable OpenRouter free models for automatic Responses API and tool-bearing agent requests.
+- Preserved explicit model, provider allowlist, and route-policy behavior when applying the coding-agent ordering.
+
 ## 0.1.5 - 2026-07-02
 
 - Added `steadyroute providers list`, `providers status`, `providers auth`, and `providers test`.
