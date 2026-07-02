@@ -174,6 +174,10 @@ steadyroute integrations apply codex
 steadyroute integrations rollback codex
 ```
 
+The Codex integration writes a SteadyRoute-owned guide under
+`~/.steadyroute/integrations/codex.md` with the local provider flags for
+`codex exec`. It does not overwrite global Codex configuration.
+
 ## Open Catalog
 
 SteadyRoute uses the [Open Free LLM Catalog](https://github.com/apuslabs/open-free-llm-catalog) for provider and model metadata.

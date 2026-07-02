@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.12 - 2026-07-02
+
+- Added `steadyroute integrations list/apply/rollback codex` to generate and remove a local Codex provider guide without modifying global Codex config.
+
 ## 0.1.11 - 2026-07-02
 
 - Normalized provider statuses to the MVP acceptance taxonomy, including `blocked-by-auth` for Groq and Gemini until credentials are provided.

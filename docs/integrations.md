@@ -18,4 +18,9 @@ steadyroute integrations apply codex
 steadyroute integrations rollback codex
 ```
 
+The Codex integration is intentionally conservative: `apply codex` writes a
+SteadyRoute-owned guide under the local SteadyRoute home directory with the
+custom provider flags needed for `codex exec`. It does not modify global Codex
+configuration. `rollback codex` removes only that generated guide.
+
 Initial integrations should focus on popular coding tools that support OpenAI-compatible endpoints.

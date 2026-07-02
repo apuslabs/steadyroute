@@ -8,6 +8,7 @@ import { exportDiagnostics } from "./diagnostics.js";
 import { addProviderKey, listProviderKeys, openDb, removeProviderKey } from "./db.js";
 import { buildDoctorReport, formatDoctor } from "./doctor.js";
 import { explainRequest } from "./explain.js";
+import { applyIntegration, formatIntegrationApply, formatIntegrationList, formatIntegrationRollback, integrationListRows, rollbackIntegration } from "./integrationCommands.js";
 import { resolvePaths } from "./paths.js";
 import { formatProviderList, formatProviderStatus, formatProviderTestResult, providerAuth, providerListRows, providerStatusRows, runProviderSmokeTest } from "./providerCommands.js";
 import { PROVIDERS } from "./providers.js";
@@ -240,6 +241,35 @@ diagnostics
       probe: Boolean(options.probe)
     });
     console.log(`Exported diagnostics to ${output}`);
+  });
+
+const integrations = program.command("integrations").description("Configure local client integrations");
+integrations
+  .command("list")
+  .description("List available integrations")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const rows = integrationListRows();
+    console.log(options.json ? JSON.stringify(rows, null, 2) : formatIntegrationList(rows));
+  });
+
+integrations
+  .command("apply <integration>")
+  .description("Generate local integration guidance without overwriting user config")
+  .option("--dry-run", "Preview without writing the SteadyRoute integration artifact")
+  .option("--json", "Emit JSON")
+  .action((integration, options) => {
+    const result = applyIntegration(integration, { dryRun: Boolean(options.dryRun) });
+    console.log(options.json ? JSON.stringify(result, null, 2) : formatIntegrationApply(result));
+  });
+
+integrations
+  .command("rollback <integration>")
+  .description("Remove a SteadyRoute-generated integration artifact")
+  .option("--json", "Emit JSON")
+  .action((integration, options) => {
+    const result = rollbackIntegration(integration);
+    console.log(options.json ? JSON.stringify(result, null, 2) : formatIntegrationRollback(result));
   });
 
 program
