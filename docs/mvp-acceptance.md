@@ -55,6 +55,8 @@ with `steadyroute explain <request-id>`.
 ## Global Prerequisites
 
 - SteadyRoute is installed or runnable from the local checkout.
+- `docs/mvp-build-brief.md` has been read and any implementation changes follow
+  its provider, routing, trace, and validation constraints.
 - The local router is started on a localhost-only bind, normally:
 
 ```bash
@@ -80,6 +82,86 @@ steadyroute start --host 127.0.0.1 --port 3001
 
 Use only accounts and keys the tester is authorized to use. Respect each
 provider's Terms of Service and free-tier limits.
+
+## Scenario SR-MVP-P0: Provider Coverage Benchmark
+
+### Purpose
+
+Verify that provider aggregation is treated as an MVP requirement, and that the
+provider matrix is informed by 9router, FreeLLMAPI, OmniRoute, and public
+provider documentation.
+
+This scenario runs before SR-MVP-00. It does not require every provider to be
+fully implemented, but it requires every important provider candidate to have a
+visible status and evidence trail.
+
+### Prerequisites
+
+- Public reference material from 9router, FreeLLMAPI, and OmniRoute is
+  available for inspection.
+- The Open Free LLM Catalog checkout is available locally or through GitHub.
+
+### Setup
+
+Create or update a provider coverage note under `docs/providers/` or
+`docs/benchmarks/` that records:
+
+- provider name
+- auth method
+- base URL or API shape when public
+- model ids when known
+- free-tier or low-cost availability
+- declared limits
+- observed limits
+- unknown, estimated, or community-reported fields
+- streaming support
+- tool-call support
+- JSON/schema quirks
+- retryable error behavior
+- quota and rate-limit behavior
+- region or network notes
+- ToS or documentation links
+- SteadyRoute status: `verified`, `configured`, `catalog-only`, `broken`, or
+  `deprecated`
+- evidence source
+
+At minimum, assess OpenRouter free models, Gemini free tier, Groq free tier,
+GitHub Models, and the keyless or anonymous providers surfaced by the reference
+projects.
+
+### Expected SteadyRoute Behavior
+
+- Provider status is explicit and auditable.
+- Unknown fields remain unknown instead of being guessed.
+- Broken or blocked providers keep their failure reason.
+- Provider coverage work informs routing and catalog metadata.
+
+### Expected Ledger / Explain Evidence
+
+This scenario may not create generation requests. For providers marked
+`verified`, later request ids from SR-MVP-04 or other scenarios must be linked
+back to the provider matrix.
+
+### Pass Criteria
+
+- The provider matrix exists and includes reference-project-derived provider
+  candidates.
+- Each provider has a status and evidence source.
+- At least two providers are selected as near-term validation targets.
+- No unavailable provider is silently presented as healthy.
+
+### Fail Criteria
+
+- Provider support is claimed without evidence.
+- The matrix ignores provider candidates already explored by the reference
+  projects.
+- Unknown limits are presented as exact values.
+- The implementation validates only one demo provider while claiming broad
+  provider aggregation.
+
+### Skip Criteria
+
+Do not skip. Provider coverage is part of MVP acceptance.
 
 ## Dogfood Project Selection
 
@@ -1097,18 +1179,20 @@ Do not skip. This is required for MVP acceptance.
 
 The MVP is accepted only if all required conditions are met:
 
-1. Scenario SR-MVP-00 passes.
-2. Scenario SR-MVP-01 passes through `/v1/chat/completions`.
-3. Scenario SR-MVP-02 passes with visible streaming and stream ledger evidence.
-4. Scenario SR-MVP-03 passes with Codex CLI using `/v1/responses`.
-5. Scenario SR-MVP-04 passes for at least two real providers among OpenRouter,
+1. Scenario SR-MVP-P0 passes with a provider matrix informed by 9router,
+   FreeLLMAPI, OmniRoute, and public provider docs.
+2. Scenario SR-MVP-00 passes.
+3. Scenario SR-MVP-01 passes through `/v1/chat/completions`.
+4. Scenario SR-MVP-02 passes with visible streaming and stream ledger evidence.
+5. Scenario SR-MVP-03 passes with Codex CLI using `/v1/responses`.
+6. Scenario SR-MVP-04 passes for at least two real providers among OpenRouter,
    Gemini, Groq, and GitHub Models.
-6. Scenario SR-MVP-06 records tool-call or structured request-shape conformance
+7. Scenario SR-MVP-06 records tool-call or structured request-shape conformance
    evidence for a real SteadyRoute HTTP request.
-7. Scenario SR-MVP-07 passes with a classified controlled failure.
-8. Scenario SR-MVP-08 proves quota and usage source labels are honest.
-9. Scenario SR-MVP-09 proves `doctor` state paths and post-restart explain.
-10. Scenario SR-MVP-10 passes for direct `/v1/responses`.
+8. Scenario SR-MVP-07 passes with a classified controlled failure.
+9. Scenario SR-MVP-08 proves quota and usage source labels are honest.
+10. Scenario SR-MVP-09 proves `doctor` state paths and post-restart explain.
+11. Scenario SR-MVP-10 passes for direct `/v1/responses`.
 
 Optional Scenario SR-MVP-05 should be run when a supported client is already
 available locally, but it does not block MVP acceptance.
@@ -1118,18 +1202,19 @@ unexplained client success is a failure for MVP acceptance.
 
 ## Recommended Dogfood Order
 
-1. Run SR-MVP-00 to confirm local state, bind address, and provider readiness.
-2. Run SR-MVP-04 for provider matrix health and pick two providers for the gate.
-3. Run SR-MVP-01 for basic Chat Completions.
-4. Run SR-MVP-02 for streaming.
-5. Run SR-MVP-10 for direct Responses.
-6. Prepare `$DOGFOOD_PROJECT`.
-7. Run SR-MVP-03 with Codex CLI.
-8. Run SR-MVP-06 for tool-call/request-shape conformance.
-9. Run SR-MVP-07 for controlled failure and fallback classification.
-10. Run SR-MVP-08 for quota evidence honesty.
-11. Restart SteadyRoute and run SR-MVP-09.
-12. If available, run SR-MVP-05 with one additional coding client.
+1. Run SR-MVP-P0 to build the provider coverage benchmark.
+2. Run SR-MVP-00 to confirm local state, bind address, and provider readiness.
+3. Run SR-MVP-04 for provider matrix health and pick two providers for the gate.
+4. Run SR-MVP-01 for basic Chat Completions.
+5. Run SR-MVP-02 for streaming.
+6. Run SR-MVP-10 for direct Responses.
+7. Prepare `$DOGFOOD_PROJECT`.
+8. Run SR-MVP-03 with Codex CLI.
+9. Run SR-MVP-06 for tool-call/request-shape conformance.
+10. Run SR-MVP-07 for controlled failure and fallback classification.
+11. Run SR-MVP-08 for quota evidence honesty.
+12. Restart SteadyRoute and run SR-MVP-09.
+13. If available, run SR-MVP-05 with one additional coding client.
 
 ## What Must Be Automated Later
 
