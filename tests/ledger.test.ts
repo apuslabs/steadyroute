@@ -71,6 +71,7 @@ describe("SQLite ledger", () => {
 
     const reopened = openDb();
     const explanation = explainRequest(reopened, "req_test");
+    expect(explanation).toContain("Trace:");
     expect(explanation).toContain("github_models / gpt-4o-mini");
     expect(explanation).toContain("Attempts:");
   });

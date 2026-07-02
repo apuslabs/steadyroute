@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.8 - 2026-07-02
+
+- Added `steadyroute diagnostics export` for redacted local evidence bundles.
+- Added trace and span identifiers to request ledger records, `explain`, and response headers.
+
 ## 0.1.7 - 2026-07-02
 
 - Added `steadyroute keys list` and `steadyroute keys remove` for CLI-only provider key management.

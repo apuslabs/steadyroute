@@ -3,6 +3,7 @@ import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
 import { loadConfig } from "./config.js";
+import { exportDiagnostics } from "./diagnostics.js";
 import { addProviderKey, listProviderKeys, openDb, removeProviderKey } from "./db.js";
 import { buildDoctorReport, formatDoctor } from "./doctor.js";
 import { explainRequest } from "./explain.js";
@@ -192,6 +193,25 @@ providers
     const result = await runProviderSmokeTest(db, provider, options);
     console.log(options.json ? JSON.stringify(result, null, 2) : formatProviderTestResult(result));
     if (!result.ok) process.exitCode = 1;
+  });
+
+const diagnostics = program.command("diagnostics").description("Export local diagnostic bundles");
+diagnostics
+  .command("export")
+  .description("Write a redacted diagnostics JSON bundle")
+  .option("--output <path>", "Output JSON path")
+  .option("--include-bodies", "Include full local request and response bodies")
+  .option("--limit <count>", "Recent request count to include", (value) => Number(value), 50)
+  .option("--probe", "Include lightweight provider probe summaries")
+  .action(async (options) => {
+    const db = openDb();
+    const output = await exportDiagnostics(db, {
+      outputPath: options.output,
+      includeBodies: Boolean(options.includeBodies),
+      limit: options.limit,
+      probe: Boolean(options.probe)
+    });
+    console.log(`Exported diagnostics to ${output}`);
   });
 
 program

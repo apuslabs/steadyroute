@@ -88,6 +88,12 @@ REQUEST_ID="$(awk 'tolower($1)=="x-steadyroute-request-id:" {print $2}' /tmp/ste
 steadyroute explain "$REQUEST_ID"
 ```
 
+Export redacted local diagnostics when sharing evidence:
+
+```bash
+steadyroute diagnostics export --output ./steadyroute-diagnostics.json
+```
+
 Add an optional provider key only when you want keyed providers:
 
 ```bash
@@ -122,6 +128,9 @@ Checks include:
 - Tool-call and JSON schema compatibility.
 
 SteadyRoute records request traces locally so you can inspect how a route was selected, which providers were skipped, which fallbacks were attempted, and what final error classification was returned.
+`steadyroute diagnostics export` writes a redacted JSON bundle with doctor output,
+provider status, key aliases, recent request metadata, trace ids, attempts, and
+usage evidence. Full request and response bodies are summarized by default.
 
 ## Default Free Routes
 

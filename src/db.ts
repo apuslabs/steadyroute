@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import Database from "better-sqlite3";
 import { decryptSecret, encryptSecret } from "./crypto.js";
 import { ensureHome, resolvePaths } from "./paths.js";
@@ -5,6 +6,8 @@ import type { ErrorClass, StreamMetadata, UsageEvidence } from "./types.js";
 
 export interface RequestRecordInput {
   requestId: string;
+  traceId?: string;
+  spanId?: string;
   endpoint: string;
   protocol: string;
   method: string;
@@ -76,6 +79,8 @@ export function migrate(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS requests (
       request_id TEXT PRIMARY KEY,
+      trace_id TEXT,
+      span_id TEXT,
       created_at TEXT NOT NULL,
       completed_at TEXT,
       endpoint TEXT NOT NULL,
@@ -136,6 +141,9 @@ export function migrate(db: Database.Database): void {
       PRIMARY KEY (provider, model, key_alias)
     );
   `);
+
+  ensureColumn(db, "requests", "trace_id", "ALTER TABLE requests ADD COLUMN trace_id TEXT");
+  ensureColumn(db, "requests", "span_id", "ALTER TABLE requests ADD COLUMN span_id TEXT");
 }
 
 export function addProviderKey(db: Database.Database, provider: string, alias: string, value: string): void {
@@ -170,12 +178,14 @@ export function removeProviderKey(db: Database.Database, provider: string, alias
 export function createRequest(db: Database.Database, input: RequestRecordInput): void {
   db.prepare(`
     INSERT INTO requests (
-      request_id, created_at, endpoint, protocol, method, client, model_requested, route_policy,
+      request_id, trace_id, span_id, created_at, endpoint, protocol, method, client, model_requested, route_policy,
       provider_allowlist_json, provider_denylist_json, request_body_json, catalog_source,
       candidates_json, skips_json, trace_full_bodies
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     input.requestId,
+    input.traceId ?? randomHex(16),
+    input.spanId ?? randomHex(8),
     new Date().toISOString(),
     input.endpoint,
     input.protocol,
@@ -272,8 +282,26 @@ export function readRequestWithAttempts(db: Database.Database, requestId: string
   return { request, attempts };
 }
 
+export function listRecentRequestsWithAttempts(db: Database.Database, limit: number): Array<{ request: Record<string, unknown>; attempts: Array<Record<string, unknown>> }> {
+  const requests = db.prepare("SELECT * FROM requests ORDER BY created_at DESC LIMIT ?").all(Math.max(1, Math.min(limit, 500))) as Array<Record<string, unknown>>;
+  const attempts = db.prepare("SELECT * FROM attempts WHERE request_id = ? ORDER BY attempt_index ASC");
+  return requests.map((request) => ({
+    request,
+    attempts: attempts.all(request.request_id) as Array<Record<string, unknown>>
+  }));
+}
+
 export function stringify(value: unknown): string {
   return JSON.stringify(value ?? null);
+}
+
+function ensureColumn(db: Database.Database, table: string, column: string, ddl: string): void {
+  const columns = db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+  if (!columns.some((item) => item.name === column)) db.exec(ddl);
+}
+
+function randomHex(bytes: number): string {
+  return crypto.randomBytes(bytes).toString("hex");
 }
 
 function summarizeBody(value: unknown): unknown {

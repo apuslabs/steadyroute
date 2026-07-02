@@ -56,8 +56,10 @@ describe("router fallback", () => {
     });
 
     expect(result.response.status).toBe(200);
+    expect(result.response.headers.get("x-steadyroute-trace-id")).toMatch(/^[0-9a-f]{32}$/);
     expect(calls).toBeGreaterThanOrEqual(2);
     const explanation = explainRequest(db, "req_fallback");
+    expect(explanation).toContain("Trace:");
     expect(explanation).toContain("openrouter/openrouter/free key=dogfood-invalid");
     expect(explanation).toContain("auth_failed");
     expect(explanation).toContain("fallbackable: trying next candidate");

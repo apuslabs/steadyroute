@@ -10,6 +10,7 @@ export function explainRequest(db: Database.Database, requestId: string): string
   const request = data.request;
   const lines: string[] = [];
   lines.push(`SteadyRoute request ${requestId}`);
+  lines.push(`Trace: ${request.trace_id ?? "unknown"} span=${request.span_id ?? "unknown"}`);
   lines.push(`Status: ${request.final_status ?? "incomplete"} (HTTP ${request.http_status ?? "unknown"})`);
   lines.push(`Endpoint: ${request.endpoint}`);
   lines.push(`Protocol: ${request.protocol}`);

@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import type Database from "better-sqlite3";
 import { callProvider, streamProvider } from "./adapters.js";
 import { createRequest, finalizeRequest, getActiveCooldown, getProviderKey, recordAttempt, setCooldown } from "./db.js";
@@ -26,6 +27,8 @@ export interface RouteRequestResult {
 
 export async function routeRequest(input: RouteRequestInput): Promise<RouteRequestResult> {
   const protocol = input.endpoint === "/v1/responses" ? "responses" : "chat_completions";
+  const traceId = randomHex(16);
+  const spanId = randomHex(8);
   const originalBody = input.body;
   const chatBody = protocol === "responses" ? responsesToChat(originalBody) : originalBody as ChatRequestBody;
   const stream = chatBody.stream === true;
@@ -44,6 +47,8 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
 
   createRequest(input.db, {
     requestId: input.requestId,
+    traceId,
+    spanId,
     endpoint: input.endpoint,
     protocol,
     method: input.method,
@@ -73,7 +78,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
       streamMetadata: null,
       fallbackDecisions: skips
     });
-    return { requestId: input.requestId, response: jsonError(input.requestId, errorClass, "No route candidates available", clientStatusFor(errorClass), skips) };
+    return { requestId: input.requestId, response: jsonError(input.requestId, traceId, errorClass, "No route candidates available", clientStatusFor(errorClass), skips) };
   }
 
   const fallbackDecisions: unknown[] = [];
@@ -87,7 +92,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
     try {
       if (stream) {
         const streamResult = await streamProvider({ provider: candidate.provider, model: candidate.model, key: candidate.key, body: chatBody }, protocol === "responses" ? "responses" : "chat");
-        const response = withSteadyHeaders(streamResult.response, input.requestId, candidate, 200, attemptIndex - 1);
+        const response = withSteadyHeaders(streamResult.response, input.requestId, traceId, candidate, 200, attemptIndex - 1);
         const metadataDone = streamResult.metadataPromise.then(({ metadata, bodyForLedger, usage }) => {
           const endedAt = new Date().toISOString();
           recordAttempt(input.db, {
@@ -150,7 +155,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
       });
       const rawBody = result.body && typeof result.body === "object" ? result.body as Record<string, unknown> : {};
       const responseBody = protocol === "responses" ? chatToResponsesResponse(rawBody, modelRequested) : rawBody;
-      responseBody.steadyroute = { request_id: input.requestId, provider: candidate.provider.id, model: candidate.model.id, attempts: attemptIndex };
+      responseBody.steadyroute = { request_id: input.requestId, trace_id: traceId, provider: candidate.provider.id, model: candidate.model.id, attempts: attemptIndex };
       finalizeRequest(input.db, {
         requestId: input.requestId,
         finalStatus: "success",
@@ -167,7 +172,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
         requestId: input.requestId,
         response: new Response(JSON.stringify(responseBody), {
           status: 200,
-          headers: steadyHeaders(input.requestId, candidate, attemptIndex - 1, { "content-type": "application/json" })
+          headers: steadyHeaders(input.requestId, traceId, candidate, attemptIndex - 1, { "content-type": "application/json" })
         })
       };
     } catch (error) {
@@ -211,7 +216,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
       code: finalClass,
       type: "steadyroute_error"
     },
-    steadyroute: { request_id: input.requestId, attempts: attemptIndex }
+    steadyroute: { request_id: input.requestId, trace_id: traceId, attempts: attemptIndex }
   };
   finalizeRequest(input.db, {
     requestId: input.requestId,
@@ -225,7 +230,7 @@ export async function routeRequest(input: RouteRequestInput): Promise<RouteReque
     streamMetadata: null,
     fallbackDecisions
   });
-  return { requestId: input.requestId, response: new Response(JSON.stringify(errorBody), { status, headers: { "content-type": "application/json", "x-steadyroute-request-id": input.requestId } }) };
+  return { requestId: input.requestId, response: new Response(JSON.stringify(errorBody), { status, headers: { "content-type": "application/json", "x-steadyroute-request-id": input.requestId, "x-steadyroute-trace-id": traceId } }) };
 }
 
 function noCandidateErrorClass(skips: unknown[]): ErrorClass {
@@ -414,27 +419,28 @@ function detectClient(headers: Record<string, string | string[] | undefined>): s
   return ua || null;
 }
 
-function steadyHeaders(requestId: string, candidate: RouteCandidate, fallbackAttempts: number, extra: Record<string, string>): Record<string, string> {
+function steadyHeaders(requestId: string, traceId: string, candidate: RouteCandidate, fallbackAttempts: number, extra: Record<string, string>): Record<string, string> {
   return {
     ...extra,
     "x-steadyroute-request-id": requestId,
+    "x-steadyroute-trace-id": traceId,
     "x-routed-via": `${candidate.provider.id}/${candidate.model.id}`,
     "x-fallback-attempts": String(fallbackAttempts)
   };
 }
 
-function withSteadyHeaders(response: Response, requestId: string, candidate: RouteCandidate, status: number, fallbackAttempts: number): Response {
-  const headers = steadyHeaders(requestId, candidate, fallbackAttempts, {});
+function withSteadyHeaders(response: Response, requestId: string, traceId: string, candidate: RouteCandidate, status: number, fallbackAttempts: number): Response {
+  const headers = steadyHeaders(requestId, traceId, candidate, fallbackAttempts, {});
   response.headers.forEach((value, key) => {
     headers[key] = value;
   });
   return new Response(response.body, { status, headers });
 }
 
-function jsonError(requestId: string, errorClass: ErrorClass, message: string, status: number, details: unknown): Response {
-  return new Response(JSON.stringify({ error: { message, code: errorClass }, steadyroute: { request_id: requestId, details } }), {
+function jsonError(requestId: string, traceId: string, errorClass: ErrorClass, message: string, status: number, details: unknown): Response {
+  return new Response(JSON.stringify({ error: { message, code: errorClass }, steadyroute: { request_id: requestId, trace_id: traceId, details } }), {
     status,
-    headers: { "content-type": "application/json", "x-steadyroute-request-id": requestId }
+    headers: { "content-type": "application/json", "x-steadyroute-request-id": requestId, "x-steadyroute-trace-id": traceId }
   });
 }
 
@@ -458,4 +464,8 @@ function extractFinalText(body: Record<string, unknown>): string {
   const choices = Array.isArray(body.choices) ? body.choices as Array<Record<string, unknown>> : [];
   const message = choices[0]?.message && typeof choices[0]?.message === "object" ? choices[0].message as Record<string, unknown> : {};
   return typeof message.content === "string" ? message.content : "";
+}
+
+function randomHex(bytes: number): string {
+  return crypto.randomBytes(bytes).toString("hex");
 }
