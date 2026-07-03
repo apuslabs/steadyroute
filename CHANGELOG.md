@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## 0.1.33 - 2026-07-03
+
+- Keep generated request ids CLI-safe so steadyroute explain works without leading-dash option parsing.
+- Update acceptance capture helpers to pass -- before request ids.
+
 ## 0.1.32 - 2026-07-03
 
 - Changed the manual release workflow to publish npm and create the GitHub Release directly after tagging.
