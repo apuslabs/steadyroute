@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.32 - 2026-07-03
+
 - Changed the manual release workflow to publish npm and create the GitHub Release directly after tagging.
 
 ## 0.1.31 - 2026-07-03
