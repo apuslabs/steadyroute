@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.26 - 2026-07-03
+
 - Added `steadyroute acceptance check` for scriptable local evidence gate checks with non-zero exit status on incomplete audit evidence.
 - Changed the manual release workflow to commit and tag releases, then hand npm publishing and GitHub Release creation to the tag-triggered Publish workflow.
 
