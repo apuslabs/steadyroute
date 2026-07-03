@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.25 - 2026-07-03
+
 - Added `steadyroute acceptance list` to print required MVP scenario ids, evidence patterns, audit signals, and review notes.
 
 ## 0.1.24 - 2026-07-03
