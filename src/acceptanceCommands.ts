@@ -11,6 +11,18 @@ export interface AcceptanceScenarioStatus {
   status: "evidence-present" | "missing";
   evidence_files: string[];
   missing_patterns: string[];
+  signals: AcceptanceEvidenceSignals;
+}
+
+export interface AcceptanceEvidenceSignals {
+  explain_files: number;
+  request_ids: string[];
+  endpoints: string[];
+  providers: string[];
+  final_statuses: string[];
+  error_classes: string[];
+  doctor_files: number;
+  doctor_local_paths: boolean;
 }
 
 export interface AcceptanceStatusReport {
@@ -29,21 +41,23 @@ export interface AcceptanceStatusReport {
 interface ScenarioRequirement {
   id: string;
   required: boolean;
-  patterns: RegExp[];
+  patterns: EvidencePattern[];
 }
 
+type EvidencePattern = { scope: "path" | "basename"; pattern: RegExp };
+
 const SCENARIOS: ScenarioRequirement[] = [
-  { id: "SR-MVP-P0", required: true, patterns: [/docs\/providers\/.*provider-coverage-matrix\.md$/] },
-  { id: "SR-MVP-00", required: true, patterns: [/00-doctor\.txt$/, /00-models\.txt$/, /00-health\.json$/, /00-v1-models\.json$/] },
-  { id: "SR-MVP-01", required: true, patterns: [/01-chat-.*\.(txt|json)$/, /01-explain\.txt$/] },
-  { id: "SR-MVP-02", required: true, patterns: [/02-stream.*\.(sse|txt)$/, /02-explain\.txt$/] },
-  { id: "SR-MVP-03", required: true, patterns: [/03-codex-responses.*\.txt$/, /03-explain.*\.txt$/] },
-  { id: "SR-MVP-04", required: true, patterns: [/04-.*-explain\.txt$/] },
-  { id: "SR-MVP-06", required: true, patterns: [/06-.*body\.json$/, /06-explain\.txt$/] },
-  { id: "SR-MVP-07", required: true, patterns: [/07-.*explain.*\.txt$/] },
-  { id: "SR-MVP-08", required: true, patterns: [/08-doctor\.txt$/, /08-.*explain.*\.txt$/] },
-  { id: "SR-MVP-09", required: true, patterns: [/09-.*after.*\.txt$/, /09-.*explain.*\.txt$/] },
-  { id: "SR-MVP-10", required: true, patterns: [/10-responses-body\.json$/, /10-explain\.txt$/] }
+  { id: "SR-MVP-P0", required: true, patterns: [pathPattern(/docs\/providers\/.*provider-coverage-matrix\.md$/)] },
+  { id: "SR-MVP-00", required: true, patterns: [namePattern(/^00-doctor\.txt$/), namePattern(/^00-models\.txt$/), namePattern(/^00-health\.json$/), namePattern(/^00-v1-models\.json$/)] },
+  { id: "SR-MVP-01", required: true, patterns: [namePattern(/^01-chat-.*\.(txt|json)$/), namePattern(/^01-.*explain.*\.txt$/)] },
+  { id: "SR-MVP-02", required: true, patterns: [namePattern(/^02-stream.*\.(sse|txt)$/), namePattern(/^02-.*explain.*\.txt$/)] },
+  { id: "SR-MVP-03", required: true, patterns: [namePattern(/^03-codex-responses.*\.txt$/), namePattern(/^03-explain.*\.txt$/)] },
+  { id: "SR-MVP-04", required: true, patterns: [namePattern(/^04-.*-explain\.txt$/)] },
+  { id: "SR-MVP-06", required: true, patterns: [namePattern(/^06-.*body\.json$/), namePattern(/^06-.*explain.*\.txt$/)] },
+  { id: "SR-MVP-07", required: true, patterns: [namePattern(/^07-.*explain.*\.txt$/)] },
+  { id: "SR-MVP-08", required: true, patterns: [namePattern(/^08-doctor\.txt$/), namePattern(/^08-.*explain.*\.txt$/)] },
+  { id: "SR-MVP-09", required: true, patterns: [namePattern(/^09-.*after.*\.txt$/), namePattern(/^09-.*explain.*\.txt$/)] },
+  { id: "SR-MVP-10", required: true, patterns: [namePattern(/^10-responses-body\.json$/), namePattern(/^10-.*explain.*\.txt$/)] }
 ];
 
 export function buildAcceptanceStatus(options: AcceptanceStatusOptions = {}): AcceptanceStatusReport {
@@ -85,6 +99,8 @@ export function formatAcceptanceStatus(report: AcceptanceStatusReport): string {
       for (const file of scenario.evidence_files.slice(0, 5)) lines.push(`  evidence: ${file}`);
       if (scenario.evidence_files.length > 5) lines.push(`  evidence: +${scenario.evidence_files.length - 5} more`);
     }
+    const signalSummary = formatSignals(scenario.signals);
+    if (signalSummary) lines.push(`  signals: ${signalSummary}`);
     if (scenario.missing_patterns.length > 0) {
       lines.push(`  missing: ${scenario.missing_patterns.join(", ")}`);
     }
@@ -98,9 +114,9 @@ function scenarioStatus(scenario: ScenarioRequirement, files: string[]): Accepta
   const evidence = new Set<string>();
   const missingPatterns: string[] = [];
   for (const pattern of scenario.patterns) {
-    const matches = files.filter((file) => pattern.test(normalizePath(file)));
+    const matches = files.filter((file) => matchesPattern(file, pattern));
     if (matches.length === 0) {
-      missingPatterns.push(pattern.source);
+      missingPatterns.push(pattern.pattern.source);
       continue;
     }
     for (const match of matches) evidence.add(match);
@@ -110,8 +126,78 @@ function scenarioStatus(scenario: ScenarioRequirement, files: string[]): Accepta
     required: scenario.required,
     status: missingPatterns.length === 0 ? "evidence-present" : "missing",
     evidence_files: [...evidence].sort(),
-    missing_patterns: missingPatterns
+    missing_patterns: missingPatterns,
+    signals: collectSignals([...evidence])
   };
+}
+
+function collectSignals(files: string[]): AcceptanceEvidenceSignals {
+  const requestIds = new Set<string>();
+  const endpoints = new Set<string>();
+  const providers = new Set<string>();
+  const finalStatuses = new Set<string>();
+  const errorClasses = new Set<string>();
+  let explainFiles = 0;
+  let doctorFiles = 0;
+  let doctorLocalPaths = false;
+
+  for (const file of files) {
+    const normalized = normalizePath(file);
+    const text = readSmallText(file);
+    if (!text) continue;
+    if (/explain.*\.txt$/.test(normalized)) {
+      explainFiles += 1;
+      addMatch(text, /^SteadyRoute request (.+)$/m, requestIds);
+      addMatch(text, /^Endpoint: (.+)$/m, endpoints);
+      addMatch(text, /^Status: (.+)$/m, finalStatuses);
+      addMatch(text, /^Final provider\/model: ([^/]+) \//m, providers);
+      for (const match of text.matchAll(/error: ([a-z_]+)/g)) errorClasses.add(match[1]);
+    }
+    if (/doctor.*\.txt$/.test(normalized)) {
+      doctorFiles += 1;
+      if (/Config path: .+\nDB path: .+\nLedger path: /m.test(text) && /local_only=true/.test(text)) {
+        doctorLocalPaths = true;
+      }
+    }
+  }
+
+  return {
+    explain_files: explainFiles,
+    request_ids: [...requestIds].sort(),
+    endpoints: [...endpoints].sort(),
+    providers: [...providers].sort(),
+    final_statuses: [...finalStatuses].sort(),
+    error_classes: [...errorClasses].sort(),
+    doctor_files: doctorFiles,
+    doctor_local_paths: doctorLocalPaths
+  };
+}
+
+function formatSignals(signals: AcceptanceEvidenceSignals): string {
+  const parts: string[] = [];
+  if (signals.explain_files > 0) parts.push(`explain_files=${signals.explain_files}`);
+  if (signals.request_ids.length > 0) parts.push(`request_ids=${signals.request_ids.length}`);
+  if (signals.endpoints.length > 0) parts.push(`endpoints=${signals.endpoints.join("|")}`);
+  if (signals.providers.length > 0) parts.push(`providers=${signals.providers.join("|")}`);
+  if (signals.error_classes.length > 0) parts.push(`errors=${signals.error_classes.join("|")}`);
+  if (signals.doctor_files > 0) parts.push(`doctor_files=${signals.doctor_files}`);
+  if (signals.doctor_local_paths) parts.push("doctor_local_paths=true");
+  return parts.join(" ");
+}
+
+function addMatch(text: string, pattern: RegExp, out: Set<string>): void {
+  const match = text.match(pattern);
+  if (match?.[1]) out.add(match[1].trim());
+}
+
+function readSmallText(file: string): string | null {
+  try {
+    const stat = fs.statSync(file);
+    if (stat.size > 1024 * 1024) return null;
+    return fs.readFileSync(file, "utf8");
+  } catch {
+    return null;
+  }
 }
 
 function listEvidenceFiles(root: string): string[] {
@@ -137,4 +223,18 @@ function walk(dir: string, out: string[]): void {
 
 function normalizePath(file: string): string {
   return file.split(path.sep).join("/");
+}
+
+function matchesPattern(file: string, evidencePattern: EvidencePattern): boolean {
+  const normalized = normalizePath(file);
+  const target = evidencePattern.scope === "basename" ? path.posix.basename(normalized) : normalized;
+  return evidencePattern.pattern.test(target);
+}
+
+function namePattern(pattern: RegExp): EvidencePattern {
+  return { scope: "basename", pattern };
+}
+
+function pathPattern(pattern: RegExp): EvidencePattern {
+  return { scope: "path", pattern };
 }

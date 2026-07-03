@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.19 - 2026-07-03
+
+- Added request, endpoint, provider, status, and error signals to `steadyroute acceptance status`, and fixed scenario evidence matching so dated directories cannot cross-match unrelated scenario files.
+
 ## 0.1.18 - 2026-07-03
 
 - Added `steadyroute acceptance status` to summarize local MVP acceptance evidence coverage without running providers.
