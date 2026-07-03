@@ -3,6 +3,11 @@ name: Release
 on:
   workflow_dispatch:
     inputs:
+      target_ref:
+        description: 'Branch or ref to release from. Use the MVP branch until it is merged.'
+        required: true
+        default: 'codex/feat-mvp-router-core'
+        type: string
       bump:
         description: 'Semver bump to apply when version is empty'
         required: true
@@ -31,19 +36,18 @@ permissions:
   id-token: write
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release-${{ inputs.target_ref || github.ref }}
   cancel-in-progress: false
 
 jobs:
   release:
     name: Bump, Test, and Tag
     runs-on: ubuntu-latest
-    if: github.ref_type == 'branch'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.ref_name }}
+          ref: ${{ inputs.target_ref }}
           fetch-depth: 0
 
       - name: Setup Node
@@ -113,7 +117,7 @@ jobs:
           fi
           git commit -m "chore(release): v${VERSION}"
           git tag "v${VERSION}"
-          git push origin "HEAD:${GITHUB_REF_NAME}" "refs/tags/v${VERSION}"
+          git push origin "HEAD:${{ inputs.target_ref }}" "refs/tags/v${VERSION}"
 
       - name: Publish handoff
         if: ${{ !inputs.dry_run }}
@@ -136,7 +140,8 @@ jobs:
             echo
             echo "- Version: v${VERSION:-unknown}"
             echo "- Dry run: ${DRY_RUN}"
-            echo "- Ref: ${GITHUB_REF_NAME}"
+            echo "- Workflow ref: ${GITHUB_REF_NAME}"
+            echo "- Target ref: ${{ inputs.target_ref }}"
             if [ "${DRY_RUN}" != "true" ] && [ -n "${VERSION}" ]; then
               echo "- Publish handoff: tag v${VERSION} triggers the Publish workflow"
             fi
