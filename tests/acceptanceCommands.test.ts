@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceIds, buildAcceptanceStatus, buildAcceptanceTodo, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceIds, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, formatAcceptanceTodo, initAcceptanceRun } from "../src/acceptanceCommands.js";
+import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceIds, buildAcceptanceReleaseNotes, buildAcceptanceStatus, buildAcceptanceTodo, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceIds, formatAcceptanceInit, formatAcceptanceReleaseNotes, formatAcceptanceScenarioList, formatAcceptanceStatus, formatAcceptanceTodo, initAcceptanceRun } from "../src/acceptanceCommands.js";
 
 describe("acceptance commands", () => {
   const roots: string[] = [];
@@ -406,6 +406,46 @@ describe("acceptance commands", () => {
     expect(formatted).toContain("SR-MVP-01: 3 request ids");
     expect(formatted).toContain("explain: steadyroute explain -- 'req_chat_body'");
     expect(formatted).toContain("note: This command only extracts request ids from local evidence files.");
+  });
+
+  it("formats release workflow validation inputs from local evidence", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-release-notes-test-"));
+    roots.push(root);
+    writeEvidence(root, "run-1/00-doctor.txt", doctorText(root));
+    writeEvidence(root, "run-1/00-models.txt");
+    writeEvidence(root, "run-1/00-health.json");
+    writeEvidence(root, "run-1/00-v1-models.json");
+    writeEvidence(root, "run-1/01-chat-client.txt", "x-steadyroute-request-id: req_chat\n");
+    writeEvidence(root, "run-1/01-explain.txt", [
+      "SteadyRoute request req_chat",
+      "Status: success (HTTP 200)",
+      "Endpoint: /v1/chat/completions",
+      "Final provider/model: openrouter / openrouter/free"
+    ].join("\n"));
+
+    const report = buildAcceptanceReleaseNotes({ root, run: "run-1" });
+    const formatted = formatAcceptanceReleaseNotes(report);
+
+    expect(report.summary).toMatchObject({
+      required_total: 11,
+      pass_ready_required: 3,
+      audit_status: "audit-incomplete",
+      request_ids_total: 1,
+      providers: ["openrouter"],
+      endpoints: ["/v1/chat/completions"]
+    });
+    expect(report.workflow_inputs.validation_summary).toContain("Machine evidence audit: audit-incomplete.");
+    expect(report.workflow_inputs.validation_summary).toContain("Pass-ready required scenarios: 3/11.");
+    expect(report.workflow_inputs.validation_evidence).toContain("Run: run-1");
+    expect(report.workflow_inputs.validation_evidence).toContain("Provider matrix: docs/providers/2026-07-02-provider-coverage-matrix.md");
+    expect(report.workflow_inputs.validation_evidence).toContain("Audit command: steadyroute acceptance audit");
+    expect(report.workflow_inputs.validation_evidence).toContain("SR-MVP-01: req_chat");
+    expect(report.workflow_inputs.known_gaps).toContain("SR-MVP-03: missing-evidence; Run Codex CLI");
+    expect(formatted).toContain("SteadyRoute release validation inputs");
+    expect(formatted).toContain("validation_summary:");
+    expect(formatted).toContain("validation_evidence:");
+    expect(formatted).toContain("known_gaps:");
+    expect(formatted).toContain("note: This command formats local evidence scan results");
   });
 
   it("prints explain commands that work for request ids starting with a dash", () => {

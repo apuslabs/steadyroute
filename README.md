@@ -133,6 +133,7 @@ steadyroute acceptance audit --latest
 steadyroute acceptance check --latest
 steadyroute acceptance todo --latest
 steadyroute acceptance ids --latest
+steadyroute acceptance release-notes --latest
 steadyroute acceptance status --json
 ```
 
@@ -198,6 +199,10 @@ non-zero otherwise.
 signals, and scenario-specific next steps without running providers.
 `steadyroute acceptance ids` extracts request ids from saved local evidence
 files and prints matching `steadyroute explain` commands.
+`steadyroute acceptance release-notes` formats the local audit, evidence
+references, request ids, and known gaps as the `validation_summary`,
+`validation_evidence`, and `known_gaps` inputs used by the GitHub Release
+workflow. It does not run providers.
 
 ## Default Free Routes
 

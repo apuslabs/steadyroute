@@ -154,6 +154,27 @@ export interface AcceptanceRequestIdHit {
   explain_command: string;
 }
 
+export interface AcceptanceReleaseNotesReport {
+  root: string;
+  selection: AcceptanceEvidenceSelection;
+  generated_at: string;
+  summary: {
+    required_total: number;
+    pass_ready_required: number;
+    audit_status: AcceptanceAuditReport["summary"]["audit_status"];
+    review_required: string[];
+    request_ids_total: number;
+    providers: string[];
+    endpoints: string[];
+  };
+  workflow_inputs: {
+    validation_summary: string;
+    validation_evidence: string;
+    known_gaps: string;
+  };
+  notes: string[];
+}
+
 export interface AcceptanceEvidenceSelection {
   mode: "aggregate" | "run" | "latest";
   run: string | null;
@@ -852,6 +873,103 @@ export function formatAcceptanceIds(report: AcceptanceIdsReport): string {
   return lines.join("\n");
 }
 
+export function buildAcceptanceReleaseNotes(options: AcceptanceStatusOptions = {}): AcceptanceReleaseNotesReport {
+  const audit = buildAcceptanceAudit(options);
+  const ids = buildAcceptanceIds(options);
+  const todo = buildAcceptanceTodo(options);
+  const providers = uniqueSorted(audit.scenarios.flatMap((scenario) => scenario.signals.providers));
+  const endpoints = uniqueSorted(audit.scenarios.flatMap((scenario) => scenario.signals.endpoints));
+  const requestIdLines = ids.scenarios.flatMap((scenario) => {
+    const idsForScenario = scenario.request_ids.map((hit) => hit.request_id);
+    if (idsForScenario.length === 0) return [];
+    const shown = idsForScenario.slice(0, 8).join(", ");
+    const suffix = idsForScenario.length > 8 ? ` (+${idsForScenario.length - 8} more)` : "";
+    return [`- ${scenario.id}: ${shown}${suffix}`];
+  });
+  const evidenceLines = [
+    `Evidence root: ${audit.selection.evidence_root}`,
+    `Selection mode: ${audit.selection.mode}`,
+    audit.selection.run ? `Run: ${audit.selection.run}` : null,
+    fs.existsSync("docs/providers/2026-07-02-provider-coverage-matrix.md")
+      ? "Provider matrix: docs/providers/2026-07-02-provider-coverage-matrix.md"
+      : "Provider matrix: not found in current checkout",
+    `Audit command: ${auditCommandForSelection(audit.selection)}`,
+    `Request ids found: ${ids.summary.request_ids_total}`,
+    requestIdLines.length > 0 ? ["Request ids:", ...requestIdLines].join("\n") : "Request ids: none found in local evidence"
+  ].filter((line): line is string => Boolean(line));
+
+  const reviewRequired = audit.summary.review_required;
+  const summaryLines = [
+    `Machine evidence audit: ${audit.summary.audit_status}.`,
+    `Pass-ready required scenarios: ${audit.summary.pass_ready_required}/${audit.summary.required_total}.`,
+    providers.length > 0 ? `Providers with evidence: ${providers.join(", ")}.` : "Providers with evidence: none found.",
+    endpoints.length > 0 ? `Endpoints with evidence: ${endpoints.join(", ")}.` : "Endpoints with evidence: none found.",
+    reviewRequired.length > 0 ? `Review required: ${reviewRequired.join(", ")}.` : "No machine-readable scenario gaps remain; final MVP acceptance still requires human review of real provider and dogfood outputs."
+  ];
+
+  const gapLines = todo.items.length > 0
+    ? [
+        `Review required: ${reviewRequired.join(", ")}.`,
+        ...todo.items.map((item) => {
+          const step = item.next_steps[0] ?? "Capture the missing evidence defined by docs/mvp-acceptance.md.";
+          return `- ${item.id}: ${item.audit_status}; ${step}`;
+        })
+      ]
+    : [
+        "- Machine-readable evidence is ready for human review.",
+        "- Final MVP acceptance still requires manual review of request ids, provider/model evidence, and dogfood outputs before marking the goal complete."
+      ];
+
+  return {
+    root: audit.root,
+    selection: audit.selection,
+    generated_at: audit.generated_at,
+    summary: {
+      required_total: audit.summary.required_total,
+      pass_ready_required: audit.summary.pass_ready_required,
+      audit_status: audit.summary.audit_status,
+      review_required: reviewRequired,
+      request_ids_total: ids.summary.request_ids_total,
+      providers,
+      endpoints
+    },
+    workflow_inputs: {
+      validation_summary: summaryLines.join(" "),
+      validation_evidence: evidenceLines.join("\n"),
+      known_gaps: gapLines.join("\n")
+    },
+    notes: [
+      ...audit.selection.warnings,
+      "This command formats local evidence scan results for the Release workflow inputs.",
+      "It does not run providers and does not prove final MVP acceptance."
+    ]
+  };
+}
+
+export function formatAcceptanceReleaseNotes(report: AcceptanceReleaseNotesReport): string {
+  const lines = [
+    "SteadyRoute release validation inputs",
+    `Evidence root: ${report.root}`,
+    `Mode: ${report.selection.mode}`,
+    `Selected root: ${report.selection.evidence_root}`,
+    `Pass-ready required scenarios: ${report.summary.pass_ready_required}/${report.summary.required_total}`,
+    `Audit status: ${report.summary.audit_status}`,
+    "",
+    "validation_summary:",
+    report.workflow_inputs.validation_summary,
+    "",
+    "validation_evidence:",
+    report.workflow_inputs.validation_evidence,
+    "",
+    "known_gaps:",
+    report.workflow_inputs.known_gaps,
+    ""
+  ];
+  if (report.selection.run) lines.splice(3, 0, `Run: ${report.selection.run}`);
+  for (const note of report.notes) lines.push(`note: ${note}`);
+  return lines.join("\n");
+}
+
 export function formatAcceptanceAudit(report: AcceptanceAuditReport): string {
   const lines = [
     "SteadyRoute acceptance evidence audit",
@@ -1094,6 +1212,18 @@ function defaultRunName(date: Date): string {
 
 function shellQuote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function uniqueSorted(values: string[]): string[] {
+  return [...new Set(values.filter(Boolean))].sort((left, right) => left.localeCompare(right));
+}
+
+function auditCommandForSelection(selection: AcceptanceEvidenceSelection): string {
+  const parts = ["steadyroute", "acceptance", "audit"];
+  if (selection.mode === "run" && selection.run) parts.push("--root", shellQuote(path.dirname(selection.evidence_root)), "--run", shellQuote(selection.run));
+  else if (selection.mode === "latest") parts.push("--root", shellQuote(path.dirname(selection.evidence_root)), "--latest");
+  else parts.push("--root", shellQuote(selection.evidence_root));
+  return parts.join(" ");
 }
 
 function scenarioStatus(scenario: ScenarioRequirement, files: string[]): AcceptanceScenarioStatus {

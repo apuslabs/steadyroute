@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added `steadyroute acceptance release-notes` to turn local acceptance evidence into Release workflow validation inputs.
 - Added structured release validation fields for GitHub Release notes and made the tag publish workflow a manual fallback so the primary Release workflow does not duplicate publish work.
 
 ## 0.1.33 - 2026-07-03
