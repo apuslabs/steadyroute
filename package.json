@@ -1,6 +1,6 @@
 {
   "name": "steadyroute",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Self-healing free LLM router.",
   "type": "module",
   "main": "dist/index.js",

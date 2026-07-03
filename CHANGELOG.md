@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.27 - 2026-07-03
+
 - Added `steadyroute acceptance todo` to print remaining local evidence capture tasks without running providers.
 
 ## 0.1.26 - 2026-07-03
