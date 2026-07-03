@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { createRequest, finalizeRequest, openDb, recordAttempt } from "../src/db.js";
+import { createRequest, finalizeRequest, listRecentProviderFailures, openDb, recordAttempt } from "../src/db.js";
 import { explainRequest, explainRequestJson } from "../src/explain.js";
 import { unknownUsage } from "../src/usage.js";
 
@@ -214,4 +214,73 @@ describe("SQLite ledger", () => {
       trace_full_bodies: false
     });
   });
+
+  it("lists recent failures with an independent limit for each provider", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-provider-failures-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    const db = openDb();
+
+    for (let index = 0; index < 5; index += 1) {
+      recordFailedAttempt(db, `req_openrouter_${index}`, "openrouter", "openrouter/free", index);
+    }
+    recordFailedAttempt(db, "req_kilo_0", "kilo", "kilo-auto/free", 99);
+
+    const failures = listRecentProviderFailures(db, 2);
+
+    expect(failures.filter((row) => row.provider === "openrouter")).toHaveLength(2);
+    expect(failures.filter((row) => row.provider === "kilo")).toHaveLength(1);
+    expect(failures.some((row) => row.request_id === "req_kilo_0")).toBe(true);
+  });
 });
+
+function recordFailedAttempt(db: ReturnType<typeof openDb>, requestId: string, provider: string, model: string, seconds: number): void {
+  createRequest(db, {
+    requestId,
+    endpoint: "/v1/chat/completions",
+    protocol: "chat_completions",
+    method: "POST",
+    client: "test",
+    modelRequested: "steadyroute:auto",
+    routePolicy: "auto",
+    providerAllowlist: [provider],
+    providerDenylist: [],
+    requestBody: { model: "steadyroute:auto", messages: [{ role: "user", content: "hi" }] },
+    catalogSource: "test",
+    candidates: [{ provider, model }],
+    skips: [],
+    traceFullBodies: true
+  });
+  recordAttempt(db, {
+    requestId,
+    attemptIndex: 1,
+    provider,
+    model,
+    keyAlias: provider === "kilo" ? "anonymous" : "default",
+    status: "failed",
+    errorClass: "provider_down",
+    behavior: { fallbackable: true },
+    upstreamStatus: 503,
+    requestBody: { ok: true },
+    responseBody: { error: "provider down" },
+    responseHeaders: {},
+    safeErrorExcerpt: "provider down",
+    startedAt: new Date(Date.UTC(2026, 6, 3, 0, 0, seconds)).toISOString(),
+    endedAt: new Date(Date.UTC(2026, 6, 3, 0, 0, seconds + 1)).toISOString(),
+    latencyMs: 10,
+    usage: unknownUsage(),
+    fallbackDecision: "fallbackable: trying next candidate if available"
+  });
+  finalizeRequest(db, {
+    requestId,
+    finalStatus: "failed",
+    httpStatus: 503,
+    finalProvider: null,
+    finalModel: null,
+    finalErrorClass: "provider_down",
+    responseBody: { error: { code: "provider_down" } },
+    usage: unknownUsage(),
+    streamMetadata: null,
+    fallbackDecisions: []
+  });
+}

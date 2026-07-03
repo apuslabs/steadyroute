@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.17 - 2026-07-03
+
+- Added provider health visibility for active cooldowns and recent failed attempts in `steadyroute doctor` and `steadyroute providers status`.
+
 ## 0.1.16 - 2026-07-03
 
 - Added `steadyroute explain <request-id> --json` for stable machine-readable request trace and acceptance assertions.

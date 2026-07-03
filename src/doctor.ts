@@ -1,6 +1,6 @@
 import type Database from "better-sqlite3";
 import { loadConfig } from "./config.js";
-import { listProviderKeys } from "./db.js";
+import { listActiveCooldowns, listProviderKeys, listRecentProviderFailures } from "./db.js";
 import { resolvePaths } from "./paths.js";
 import { PROVIDERS, resolveProviderEnvKey } from "./providers.js";
 import { readRuntimeStatus, type RuntimeStatus } from "./runtime.js";
@@ -21,6 +21,11 @@ export async function buildDoctorReport(db: Database.Database, probe = true): Pr
   const paths = resolvePaths();
   const config = loadConfig();
   const stored = listProviderKeys(db);
+  const cooldownsByProvider = groupByProvider(listActiveCooldowns(db).map((cooldown) => ({
+    ...cooldown,
+    until: new Date(cooldown.until_ms).toISOString()
+  })));
+  const failuresByProvider = groupByProvider(listRecentProviderFailures(db));
   const providers = [];
   for (const provider of PROVIDERS) {
     const envKey = resolveProviderEnvKey(provider);
@@ -35,6 +40,10 @@ export async function buildDoctorReport(db: Database.Database, probe = true): Pr
       key_source: envKey.present ? envKey.source : hasStored ? "key_store" : "none",
       human_action: keyPresent ? null : provider.auth.humanAction,
       evidence: provider.evidence,
+      health: {
+        active_cooldowns: cooldownsByProvider.get(provider.id) ?? [],
+        recent_failures: failuresByProvider.get(provider.id) ?? []
+      },
       models: provider.models.map((model) => ({
         id: model.id,
         capabilities: model.capabilities,
@@ -107,6 +116,17 @@ export function formatDoctor(report: DoctorReport): string {
   for (const provider of report.providers) {
     lines.push(`- ${provider.provider}: status=${provider.status} key_present=${provider.key_present} source=${provider.key_source} connectivity=${JSON.stringify(provider.connectivity)}`);
     if (provider.human_action) lines.push(`  human_action: ${provider.human_action}`);
+    const health = provider.health && typeof provider.health === "object" ? provider.health as Record<string, unknown> : {};
+    const cooldowns = Array.isArray(health.active_cooldowns) ? health.active_cooldowns as Array<Record<string, unknown>> : [];
+    const failures = Array.isArray(health.recent_failures) ? health.recent_failures as Array<Record<string, unknown>> : [];
+    if (cooldowns.length > 0) {
+      lines.push("  active_cooldowns:");
+      for (const cooldown of cooldowns) lines.push(`    - ${cooldown.model} key=${cooldown.key_alias} error=${cooldown.error_class} until=${cooldown.until}`);
+    }
+    if (failures.length > 0) {
+      lines.push("  recent_failures:");
+      for (const failure of failures) lines.push(`    - ${failure.request_id} ${failure.model} error=${failure.error_class} upstream=${failure.upstream_status ?? "n/a"}`);
+    }
     const evidence = Array.isArray(provider.evidence) ? provider.evidence as string[] : [];
     for (const item of evidence) lines.push(`  evidence: ${item}`);
     const models = Array.isArray(provider.models) ? provider.models as Array<Record<string, unknown>> : [];
@@ -115,4 +135,16 @@ export function formatDoctor(report: DoctorReport): string {
     }
   }
   return lines.join("\n");
+}
+
+function groupByProvider<T extends { provider?: unknown }>(rows: T[]): Map<string, T[]> {
+  const grouped = new Map<string, T[]>();
+  for (const row of rows) {
+    const provider = typeof row.provider === "string" ? row.provider : null;
+    if (!provider) continue;
+    const items = grouped.get(provider) ?? [];
+    items.push(row);
+    grouped.set(provider, items);
+  }
+  return grouped;
 }

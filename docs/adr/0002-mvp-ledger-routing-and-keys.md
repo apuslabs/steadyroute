@@ -29,6 +29,7 @@ Fallbackable MVP classes include auth/account/provider/model failures where anot
 Non-fallbackable MVP classes are client/request-shape failures: `request_invalid` and `schema_rejected`.
 
 Cooldowns are scoped to provider/model/key alias. This intentionally avoids provider-wide quarantine for one bad key or one removed model.
+`steadyroute doctor` and `steadyroute providers status` surface active cooldowns and recent failed attempts per provider so provider health is visible without replaying traffic.
 
 Provider and model allowlists/denylists are evaluated before capability, context, and cooldown checks. Model list entries may be a bare model id, `provider/model`, or `steadyroute:provider/model`; skipped candidates are recorded with explicit allowlist or denylist reasons.
 

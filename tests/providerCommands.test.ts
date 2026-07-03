@@ -2,9 +2,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { openDb } from "../src/db.js";
+import { openDb, setCooldown } from "../src/db.js";
 import { explainRequest } from "../src/explain.js";
-import { formatProviderList, providerAuth, providerListRows, providerStatusRows, runProviderSmokeTest } from "../src/providerCommands.js";
+import { formatProviderList, formatProviderStatus, providerAuth, providerListRows, providerStatusRows, runProviderSmokeTest } from "../src/providerCommands.js";
 
 describe("provider commands", () => {
   const homes: string[] = [];
@@ -53,6 +53,20 @@ describe("provider commands", () => {
     expect(rows[0]?.provider).toBe("groq");
     expect(rows[0]?.key_present).toBe(false);
     expect(String(rows[0]?.human_action)).toContain("Groq API key");
+  });
+
+  it("includes active cooldown counts in formatted provider status", async () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-provider-cooldown-status-test-"));
+    homes.push(home);
+    process.env.STEADYROUTE_HOME = home;
+    const db = openDb();
+    setCooldown(db, "kilo", "openrouter/free", "anonymous", "provider_down", "upstream 503", 60_000);
+
+    const rows = await providerStatusRows(db, "kilo", false);
+    const formatted = formatProviderStatus(rows);
+
+    expect(rows[0]?.health).toMatchObject({ active_cooldowns: [expect.objectContaining({ model: "openrouter/free", error_class: "provider_down" })] });
+    expect(formatted).toContain("active_cooldowns=1");
   });
 
   it("runs provider smoke tests through routeRequest and records explainable ledger evidence", async () => {

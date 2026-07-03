@@ -54,6 +54,11 @@ export function formatProviderStatus(rows: Array<Record<string, unknown>>): stri
   for (const row of rows) {
     lines.push(`${row.provider}: status=${row.status} key_present=${row.key_present} source=${row.key_source} connectivity=${JSON.stringify(row.connectivity)}`);
     if (row.human_action) lines.push(`  human_action: ${row.human_action}`);
+    const health = row.health && typeof row.health === "object" ? row.health as Record<string, unknown> : {};
+    const cooldowns = Array.isArray(health.active_cooldowns) ? health.active_cooldowns as Array<Record<string, unknown>> : [];
+    const failures = Array.isArray(health.recent_failures) ? health.recent_failures as Array<Record<string, unknown>> : [];
+    if (cooldowns.length > 0) lines.push(`  active_cooldowns=${cooldowns.length}`);
+    if (failures.length > 0) lines.push(`  recent_failures=${failures.length}`);
     const models = Array.isArray(row.models) ? row.models as Array<Record<string, unknown>> : [];
     for (const model of models) lines.push(`  model ${model.id}`);
   }

@@ -147,6 +147,7 @@ Checks include:
 - Local installation and port conflicts.
 - Provider key presence and validity.
 - Provider connectivity and network/proxy issues.
+- Active provider/model/key cooldowns and recent provider failures.
 - Catalog freshness.
 - Free-tier quota evidence where available.
 - Request compatibility with selected models.

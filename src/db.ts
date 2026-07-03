@@ -275,6 +275,62 @@ export function getActiveCooldown(db: Database.Database, provider: string, model
   return row ?? null;
 }
 
+export interface ActiveCooldownRow {
+  provider: string;
+  model: string;
+  key_alias: string;
+  error_class: string;
+  reason: string;
+  until_ms: number;
+  created_at: string;
+}
+
+export interface RecentProviderFailureRow {
+  request_id: string;
+  attempt_index: number;
+  provider: string;
+  model: string;
+  key_alias: string;
+  error_class: string | null;
+  upstream_status: number | null;
+  safe_error_excerpt: string;
+  started_at: string;
+  latency_ms: number;
+}
+
+export function listActiveCooldowns(db: Database.Database): ActiveCooldownRow[] {
+  return db.prepare(`
+    SELECT provider, model, key_alias, error_class, reason, until_ms, created_at
+    FROM cooldowns
+    WHERE until_ms > ?
+    ORDER BY until_ms ASC, provider ASC, model ASC
+  `).all(Date.now()) as ActiveCooldownRow[];
+}
+
+export function listRecentProviderFailures(db: Database.Database, limitPerProvider = 3): RecentProviderFailureRow[] {
+  return db.prepare(`
+    SELECT request_id, attempt_index, provider, model, key_alias, error_class, upstream_status, safe_error_excerpt, started_at, latency_ms
+    FROM (
+      SELECT
+        a.request_id,
+        a.attempt_index,
+        a.provider,
+        a.model,
+        a.key_alias,
+        a.error_class,
+        a.upstream_status,
+        a.safe_error_excerpt,
+        a.started_at,
+        a.latency_ms,
+        row_number() OVER (PARTITION BY a.provider ORDER BY a.started_at DESC, a.id DESC) AS provider_rank
+      FROM attempts a
+      WHERE a.status = 'failed'
+    )
+    WHERE provider_rank <= ?
+    ORDER BY provider ASC, started_at DESC, request_id ASC
+  `).all(Math.max(1, Math.min(limitPerProvider, 20))) as RecentProviderFailureRow[];
+}
+
 export function readRequestWithAttempts(db: Database.Database, requestId: string): { request: Record<string, unknown>; attempts: Array<Record<string, unknown>> } | null {
   const request = db.prepare("SELECT * FROM requests WHERE request_id = ?").get(requestId) as Record<string, unknown> | undefined;
   if (!request) return null;
