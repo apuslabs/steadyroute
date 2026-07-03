@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.22 - 2026-07-03
 
-- Added `steadyroute acceptance audit` to review local evidence signals per MVP scenario without running providers.
+- Added `steadyroute acceptance audit` for machine-readable MVP evidence signal review without running providers.
+
+## Unreleased
 
 ## 0.1.21 - 2026-07-03
 
