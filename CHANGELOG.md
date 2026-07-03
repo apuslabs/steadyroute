@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.30 - 2026-07-03
+
 - Added request-id listing and bulk explain helper functions to generated acceptance capture scripts.
 
 ## 0.1.29 - 2026-07-03
