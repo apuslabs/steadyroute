@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.23 - 2026-07-03
+
+- Fixed release preparation so changelog `Unreleased` stays at the top and existing unreleased notes move into the version entry.
+
 ## 0.1.22 - 2026-07-03
 
 - Added `steadyroute acceptance audit` for machine-readable MVP evidence signal review without running providers.
