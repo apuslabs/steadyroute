@@ -61,14 +61,26 @@ describe("acceptance commands", () => {
       run: "manual-smoke",
       evidence_dir: path.join(root, "manual-smoke"),
       manifest_path: path.join(root, "manual-smoke", "manifest.json"),
+      capture_script_path: path.join(root, "manual-smoke", "capture.sh"),
+      commands_path: path.join(root, "manual-smoke", "commands.md"),
       created: true
     });
     expect(manifest.run).toBe("manual-smoke");
     expect(manifest.required_scenarios).toContain("SR-MVP-10");
     expect(manifest.optional_scenarios).toEqual(["SR-MVP-05"]);
     expect(manifest.notes.join(" ")).toContain("does not prove acceptance");
+    expect(fs.statSync(result.capture_script_path).mode & 0o111).toBeGreaterThan(0);
+    expect(fs.readFileSync(result.capture_script_path, "utf8")).toContain("capture_baseline()");
+    expect(fs.readFileSync(result.capture_script_path, "utf8")).toContain("This script is a capture template.");
+    expect(fs.readFileSync(result.commands_path, "utf8")).toContain("SR-MVP-03 Codex Responses Dogfood");
+    expect(fs.readFileSync(result.commands_path, "utf8")).toContain("steadyroute acceptance check --run manual-smoke");
     expect(formatted).toContain("Run: manual-smoke");
-    expect(formatAcceptanceInit(result, { printEnv: true })).toBe(`export SR_EVIDENCE_DIR='${path.join(root, "manual-smoke")}'`);
+    expect(formatted).toContain("Capture script:");
+    expect(formatted).toContain("Command notes:");
+    expect(formatAcceptanceInit(result, { printEnv: true })).toBe([
+      `export SR_EVIDENCE_DIR='${path.join(root, "manual-smoke")}'`,
+      `export SR_CAPTURE_SCRIPT='${path.join(root, "manual-smoke", "capture.sh")}'`
+    ].join("\n"));
   });
 
   it("protects existing evidence runs unless force is set", () => {

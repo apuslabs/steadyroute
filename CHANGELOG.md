@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added capture checklist and helper script generation to `steadyroute acceptance init`.
+
 ## 0.1.27 - 2026-07-03
 
 - Added `steadyroute acceptance todo` to print remaining local evidence capture tasks without running providers.
