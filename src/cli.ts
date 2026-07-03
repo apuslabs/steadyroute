@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
-import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, initAcceptanceRun } from "./acceptanceCommands.js";
+import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, initAcceptanceRun } from "./acceptanceCommands.js";
 import { loadConfig } from "./config.js";
 import { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 import { exportDiagnostics } from "./diagnostics.js";
@@ -289,6 +289,19 @@ acceptance
   .action((options) => {
     const report = buildAcceptanceAudit({ root: options.root, run: options.run, latest: Boolean(options.latest) });
     console.log(options.json ? JSON.stringify(report, null, 2) : formatAcceptanceAudit(report));
+  });
+
+acceptance
+  .command("check")
+  .description("Exit non-zero unless local acceptance evidence is ready for human review")
+  .option("--root <path>", "Acceptance evidence root", ".steadyroute-acceptance")
+  .option("--run <name>", "Restrict evidence scan to one run directory under the evidence root")
+  .option("--latest", "Restrict evidence scan to the newest run directory under the evidence root")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const result = buildAcceptanceCheck({ root: options.root, run: options.run, latest: Boolean(options.latest) });
+    console.log(options.json ? JSON.stringify(result, null, 2) : formatAcceptanceCheck(result));
+    if (!result.ok) process.exitCode = 1;
   });
 
 const integrations = program.command("integrations").description("Configure local client integrations");

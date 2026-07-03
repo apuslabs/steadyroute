@@ -130,6 +130,7 @@ steadyroute acceptance status
 steadyroute acceptance status --latest
 steadyroute acceptance status --run 2026-07-03-smoke
 steadyroute acceptance audit --latest
+steadyroute acceptance check --latest
 steadyroute acceptance status --json
 ```
 
@@ -185,6 +186,9 @@ signal checks for request ids, endpoints, providers, streaming metadata, usage
 labels, and tool or structured-output shapes. It still does not mark final MVP
 acceptance passed; human review of real provider and dogfood evidence remains
 required.
+`steadyroute acceptance check` wraps the audit in a scriptable exit code: zero
+only when every required scenario has pass-ready local evidence signals, and
+non-zero otherwise.
 
 ## Default Free Routes
 

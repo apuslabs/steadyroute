@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, initAcceptanceRun } from "../src/acceptanceCommands.js";
+import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, initAcceptanceRun } from "../src/acceptanceCommands.js";
 
 describe("acceptance commands", () => {
   const roots: string[] = [];
@@ -297,6 +297,79 @@ describe("acceptance commands", () => {
     expect(formatted).toContain("note: Audit status is based on machine-readable evidence signals only;");
   });
 
+  it("builds a failing scriptable acceptance check while required scenarios need review", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-check-fail-test-"));
+    roots.push(root);
+    writeEvidence(root, "run-1/01-chat-client.txt");
+    writeEvidence(root, "run-1/01-explain.txt", [
+      "SteadyRoute request req_chat",
+      "Status: success (HTTP 200)",
+      "Endpoint: /v1/chat/completions",
+      "Final provider/model: openrouter / openrouter/free"
+    ].join("\n"));
+
+    const result = buildAcceptanceCheck({ root, run: "run-1" });
+    const formatted = formatAcceptanceCheck(result);
+
+    expect(result.ok).toBe(false);
+    expect(result.audit_status).toBe("audit-incomplete");
+    expect(result.review_required).toContain("SR-MVP-00");
+    expect(formatted).toContain("SteadyRoute acceptance check failed");
+  });
+
+  it("builds a passing scriptable acceptance check when every required scenario is pass-ready", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-check-pass-test-"));
+    roots.push(root);
+    writeEvidence(root, "run-1/00-doctor.txt", doctorText(root));
+    writeEvidence(root, "run-1/00-models.txt");
+    writeEvidence(root, "run-1/00-health.json");
+    writeEvidence(root, "run-1/00-v1-models.json");
+    writeScenarioExplain(root, "01", "chat", "req_chat", "/v1/chat/completions", "openrouter");
+    writeEvidence(root, "run-1/02-stream.sse", "data: one\n\ndata: two\n\n");
+    writeScenarioExplain(root, "02", "stream", "req_stream", "/v1/chat/completions", "kilo", ["Stream metadata:", "- stream: true", "- chunk_count: 2"]);
+    writeScenarioExplain(root, "03", "codex-responses", "req_codex", "/v1/responses", "openrouter");
+    writeScenarioExplain(root, "03", "explain", "req_codex", "/v1/responses", "openrouter");
+    for (const provider of ["openrouter", "kilo", "groq", "gemini"]) {
+      writeScenarioExplain(root, "04", provider, `req_${provider}`, "/v1/chat/completions", provider);
+    }
+    writeEvidence(root, "run-1/06-tool-body.json", "{}");
+    writeScenarioExplain(root, "06", "tool", "req_tool", "/v1/responses", "openrouter", [
+      "Request shape:",
+      "- stream: false",
+      "- tools_present: true",
+      "- structured_output: none",
+      "- tool_names: report_package"
+    ]);
+    writeEvidence(root, "run-1/07-failure-explain.txt", [
+      "SteadyRoute request req_failure",
+      "Status: failed (HTTP 401)",
+      "Endpoint: /v1/chat/completions",
+      "Final provider/model: openrouter / openrouter/free",
+      "Final error class: auth_failed",
+      "  error: auth_failed"
+    ].join("\n"));
+    writeEvidence(root, "run-1/08-doctor.txt", doctorText(root));
+    writeScenarioExplain(root, "08", "openrouter", "req_usage", "/v1/chat/completions", "openrouter", [
+      "Attempts:",
+      "- #1 openrouter/openrouter/free key=default status=success upstream=200 latency=20ms",
+      "  usage: input=1 (provider) output=1 (provider) total=2 (provider)"
+    ]);
+    writeEvidence(root, "run-1/09-after-restart.txt", "restart ok\n");
+    writeEvidence(root, "run-1/09-doctor-after.txt", doctorText(root));
+    writeScenarioExplain(root, "09", "after", "req_after", "/v1/chat/completions", "openrouter");
+    writeEvidence(root, "run-1/10-responses-body.json", "{}");
+    writeScenarioExplain(root, "10", "responses", "req_responses", "/v1/responses", "openrouter");
+
+    const result = buildAcceptanceCheck({ root, run: "run-1" });
+    const formatted = formatAcceptanceCheck(result);
+
+    expect(result.ok).toBe(true);
+    expect(result.audit_status).toBe("ready-for-human-review");
+    expect(result.pass_ready_required).toBe(11);
+    expect(result.review_required).toEqual([]);
+    expect(formatted).toContain("SteadyRoute acceptance check passed");
+  });
+
   it("requires four distinct provider signals for the provider matrix scenario", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-provider-audit-test-"));
     roots.push(root);
@@ -334,4 +407,24 @@ function writeEvidence(root: string, relativePath: string, contents = "evidence\
   const fullPath = path.join(root, relativePath);
   fs.mkdirSync(path.dirname(fullPath), { recursive: true });
   fs.writeFileSync(fullPath, contents);
+}
+
+function doctorText(root: string): string {
+  return [
+    "SteadyRoute doctor",
+    `Config path: ${path.join(root, "config.json")}`,
+    `DB path: ${path.join(root, "steadyroute.sqlite")}`,
+    `Ledger path: ${path.join(root, "steadyroute.sqlite")}`,
+    "Server config: 127.0.0.1:3001 local_only=true"
+  ].join("\n");
+}
+
+function writeScenarioExplain(root: string, prefix: string, name: string, requestId: string, endpoint: string, provider: string, extra: string[] = []): void {
+  writeEvidence(root, `run-1/${prefix}-${name}-explain.txt`, [
+    `SteadyRoute request ${requestId}`,
+    "Status: success (HTTP 200)",
+    `Endpoint: ${endpoint}`,
+    `Final provider/model: ${provider} / model`,
+    ...extra
+  ].join("\n"));
 }

@@ -94,6 +94,15 @@ export interface AcceptanceAuditReport extends Omit<AcceptanceStatusReport, "sce
   scenarios: AcceptanceScenarioAudit[];
 }
 
+export interface AcceptanceCheckResult {
+  ok: boolean;
+  audit_status: AcceptanceAuditReport["summary"]["audit_status"];
+  required_total: number;
+  pass_ready_required: number;
+  review_required: string[];
+  report: AcceptanceAuditReport;
+}
+
 export interface AcceptanceEvidenceSelection {
   mode: "aggregate" | "run" | "latest";
   run: string | null;
@@ -371,6 +380,29 @@ export function buildAcceptanceAudit(options: AcceptanceStatusOptions = {}): Acc
       "Audit status is based on machine-readable evidence signals only; human review remains required for final MVP acceptance."
     ]
   };
+}
+
+export function buildAcceptanceCheck(options: AcceptanceStatusOptions = {}): AcceptanceCheckResult {
+  const report = buildAcceptanceAudit(options);
+  return {
+    ok: report.summary.audit_status === "ready-for-human-review",
+    audit_status: report.summary.audit_status,
+    required_total: report.summary.required_total,
+    pass_ready_required: report.summary.pass_ready_required,
+    review_required: report.summary.review_required,
+    report
+  };
+}
+
+export function formatAcceptanceCheck(result: AcceptanceCheckResult): string {
+  const lines = [
+    result.ok ? "SteadyRoute acceptance check passed" : "SteadyRoute acceptance check failed",
+    `Audit status: ${result.audit_status}`,
+    `Pass-ready required scenarios: ${result.pass_ready_required}/${result.required_total}`
+  ];
+  if (result.review_required.length > 0) lines.push(`Review required: ${result.review_required.join(", ")}`);
+  lines.push("note: This check only validates local evidence signals; final MVP acceptance still requires human review of real provider and dogfood evidence.");
+  return lines.join("\n");
 }
 
 export function formatAcceptanceAudit(report: AcceptanceAuditReport): string {
