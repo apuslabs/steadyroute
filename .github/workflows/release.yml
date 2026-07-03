@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: 'Semver bump to apply when version is empty'
+        required: true
+        default: 'patch'
+        type: choice
+        options:
+          - 'patch'
+          - 'minor'
+          - 'major'
+      version:
+        description: 'Exact x.y.z version; overrides bump when set'
+        required: false
+        type: string
+      notes:
+        description: 'Optional extra changelog note(s); one bullet per line. Leave empty when Unreleased already has notes.'
+        required: false
+        type: string
+      dry_run:
+        description: 'Validate only; do not commit or tag'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Bump, Test, and Tag
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'branch'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org'
+          cache: 'npm'
+
+      - name: Install
+        run: npm ci
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Prepare release files
+        id: prepare
+        env:
+          INPUT_BUMP: ${{ inputs.bump }}
+          INPUT_VERSION: ${{ inputs.version }}
+          RELEASE_NOTES: ${{ inputs.notes || '' }}
+        run: |
+          node scripts/prepare-release.mjs
+          git diff -- package.json package-lock.json CHANGELOG.md
+
+      - name: Ensure release is new
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          git fetch --tags --force
+          if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+            echo "Tag v${VERSION} already exists." >&2
+            exit 1
+          fi
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${VERSION} already exists on npm." >&2
+            exit 1
+          fi
+
+      - name: Build
+        run: npm run build
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      - name: Verify package contents
+        run: npm pack --dry-run
+
+      - name: Check package metadata
+        run: npm run check:package
+
+      - name: Commit and tag release
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          git add package.json package-lock.json CHANGELOG.md
+          if git diff --cached --quiet; then
+            echo "No release file changes to commit." >&2
+            exit 1
+          fi
+          git commit -m "chore(release): v${VERSION}"
+          git tag "v${VERSION}"
+          git push origin "HEAD:${GITHUB_REF_NAME}" "refs/tags/v${VERSION}"
+
+      - name: Publish handoff
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+        run: |
+          {
+            echo "Release files were committed and v${VERSION} was pushed."
+            echo "The tag push triggers the Publish workflow, which publishes npm and creates or updates the GitHub Release."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Write summary
+        if: always()
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          {
+            echo "## Release workflow"
+            echo
+            echo "- Version: v${VERSION:-unknown}"
+            echo "- Dry run: ${DRY_RUN}"
+            echo "- Ref: ${GITHUB_REF_NAME}"
+            if [ "${DRY_RUN}" != "true" ] && [ -n "${VERSION}" ]; then
+              echo "- Publish handoff: tag v${VERSION} triggers the Publish workflow"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
