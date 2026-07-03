@@ -1,6 +1,6 @@
 {
   "name": "steadyroute",
-  "version": "0.1.19",
+  "version": "0.1.20",
   "description": "Self-healing free LLM router.",
   "type": "module",
   "main": "dist/index.js",
@@ -21,6 +21,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "postbuild": "chmod +x dist/cli.js",
+    "check:package": "node scripts/check-package.mjs",
     "dev": "tsx src/cli.ts",
     "start": "tsx src/cli.ts start",
     "test": "vitest run",

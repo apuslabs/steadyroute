@@ -45,3 +45,6 @@ jobs:
 
       - name: Verify package contents
         run: npm pack --dry-run
+
+      - name: Check package metadata
+        run: npm run check:package

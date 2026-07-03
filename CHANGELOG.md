@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.20 - 2026-07-03
+
+- Added a real package entrypoint at `dist/index.js` and CI/package checks to prevent publishing a tarball with missing `main` or CLI files.
+
 ## 0.1.19 - 2026-07-03
 
 - Added request, endpoint, provider, status, and error signals to `steadyroute acceptance status`, and fixed scenario evidence matching so dated directories cannot cross-match unrelated scenario files.

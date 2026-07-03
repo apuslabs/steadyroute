@@ -53,6 +53,9 @@ jobs:
       - name: Verify package contents
         run: npm pack --dry-run
 
+      - name: Check package metadata
+        run: npm run check:package
+
       - name: Check tag matches package version
         if: startsWith(github.ref, 'refs/tags/v')
         run: |
