@@ -103,6 +103,31 @@ export interface AcceptanceCheckResult {
   report: AcceptanceAuditReport;
 }
 
+export interface AcceptanceTodoReport {
+  root: string;
+  selection: AcceptanceEvidenceSelection;
+  generated_at: string;
+  summary: {
+    required_total: number;
+    pass_ready_required: number;
+    todo_required: number;
+    audit_status: AcceptanceAuditReport["summary"]["audit_status"];
+  };
+  items: AcceptanceTodoItem[];
+  notes: string[];
+}
+
+export interface AcceptanceTodoItem {
+  id: string;
+  required: boolean;
+  audit_status: AcceptanceScenarioAudit["audit_status"];
+  evidence_files: string[];
+  missing_evidence_patterns: string[];
+  missing_signals: string[];
+  next_steps: string[];
+  review_notes: string[];
+}
+
 export interface AcceptanceEvidenceSelection {
   mode: "aggregate" | "run" | "latest";
   run: string | null;
@@ -405,6 +430,71 @@ export function formatAcceptanceCheck(result: AcceptanceCheckResult): string {
   return lines.join("\n");
 }
 
+export function buildAcceptanceTodo(options: AcceptanceStatusOptions = {}): AcceptanceTodoReport {
+  const report = buildAcceptanceAudit(options);
+  const items = report.scenarios
+    .filter((scenario) => scenario.required && scenario.audit_status !== "pass-ready")
+    .map((scenario) => ({
+      id: scenario.id,
+      required: scenario.required,
+      audit_status: scenario.audit_status,
+      evidence_files: scenario.evidence_files,
+      missing_evidence_patterns: scenario.missing_patterns,
+      missing_signals: scenario.missing_signals,
+      next_steps: todoStepsFor(scenario),
+      review_notes: scenario.review_notes
+    }));
+
+  return {
+    root: report.root,
+    selection: report.selection,
+    generated_at: report.generated_at,
+    summary: {
+      required_total: report.summary.required_total,
+      pass_ready_required: report.summary.pass_ready_required,
+      todo_required: items.length,
+      audit_status: report.summary.audit_status
+    },
+    items,
+    notes: [
+      ...report.selection.warnings,
+      "This todo list is generated from local evidence files only. It does not run providers or prove final MVP acceptance.",
+      "Run the listed real-provider and dogfood scenarios, then re-run steadyroute acceptance audit or check."
+    ]
+  };
+}
+
+export function formatAcceptanceTodo(report: AcceptanceTodoReport): string {
+  const lines = [
+    "SteadyRoute acceptance todo",
+    `Evidence root: ${report.root}`,
+    `Mode: ${report.selection.mode}`,
+    `Selected root: ${report.selection.evidence_root}`,
+    `Pass-ready required scenarios: ${report.summary.pass_ready_required}/${report.summary.required_total}`,
+    `Todo required scenarios: ${report.summary.todo_required}`,
+    ""
+  ];
+  if (report.selection.run) lines.splice(3, 0, `Run: ${report.selection.run}`);
+  if (report.items.length === 0) {
+    lines.push("No local evidence TODOs remain. Human review of real provider and dogfood evidence is still required before final MVP acceptance.");
+  } else {
+    for (const item of report.items) {
+      lines.push(`${item.id}: ${item.audit_status}`);
+      if (item.evidence_files.length > 0) {
+        for (const file of item.evidence_files.slice(0, 3)) lines.push(`  evidence: ${file}`);
+        if (item.evidence_files.length > 3) lines.push(`  evidence: +${item.evidence_files.length - 3} more`);
+      }
+      if (item.missing_evidence_patterns.length > 0) lines.push(`  missing evidence: ${item.missing_evidence_patterns.join(", ")}`);
+      if (item.missing_signals.length > 0) lines.push(`  missing signals: ${item.missing_signals.join(", ")}`);
+      for (const step of item.next_steps) lines.push(`  next: ${step}`);
+      for (const note of item.review_notes) lines.push(`  review: ${note}`);
+    }
+  }
+  lines.push("");
+  for (const note of report.notes) lines.push(`note: ${note}`);
+  return lines.join("\n");
+}
+
 export function formatAcceptanceAudit(report: AcceptanceAuditReport): string {
   const lines = [
     "SteadyRoute acceptance evidence audit",
@@ -446,6 +536,59 @@ function hasAuditSignal(signal: string, signals: AcceptanceEvidenceSignals): boo
   if (signal === "four_providers") return signals.providers.length >= 4;
   if (signal.startsWith("endpoint:")) return signals.endpoints.includes(signal.slice("endpoint:".length));
   return false;
+}
+
+function todoStepsFor(scenario: AcceptanceScenarioAudit): string[] {
+  const base: Record<string, string[]> = {
+    "SR-MVP-P0": [
+      "Keep docs/providers/2026-07-02-provider-coverage-matrix.md current with every 9router, FreeLLMAPI, OmniRoute, and public provider candidate.",
+      "Mark each provider as verified, implemented-unverified, blocked-by-auth, catalog-only, broken, or deprecated with evidence."
+    ],
+    "SR-MVP-00": [
+      "Run steadyroute doctor, steadyroute models, /health, and /v1/models; save 00-doctor.txt, 00-models.txt, 00-health.json, and 00-v1-models.json.",
+      "Confirm doctor output shows config, DB, ledger, key store, and local_only=true without printing secrets."
+    ],
+    "SR-MVP-01": [
+      "Run a real OpenAI-compatible SDK or client through http://127.0.0.1:3001/v1/chat/completions and save 01-chat-* output.",
+      "Extract the SteadyRoute request id and save steadyroute explain output as 01-explain.txt."
+    ],
+    "SR-MVP-02": [
+      "Run a streaming chat request through SteadyRoute and save the SSE stream as 02-stream.sse or 02-stream.txt.",
+      "Save steadyroute explain output as 02-explain.txt and confirm chunk/timing metadata appears."
+    ],
+    "SR-MVP-03": [
+      "Run Codex CLI against SteadyRoute with wire_api=responses on the LaunchBoard dogfood project and save 03-codex-responses.txt.",
+      "Save steadyroute explain output for a Codex request id as 03-explain.txt and confirm endpoint /v1/responses."
+    ],
+    "SR-MVP-04": [
+      "Run constrained provider smokes through SteadyRoute for at least four distinct real providers and save 04-<provider>-explain.txt for each.",
+      "Confirm every counted provider is a distinct upstream and at least one no-login route works."
+    ],
+    "SR-MVP-06": [
+      "Run a real tool-call or structured request through SteadyRoute and save 06-*-body.json.",
+      "Save 06-*-explain.txt with tools_present, tool_names, or structured output evidence."
+    ],
+    "SR-MVP-07": [
+      "Run a controlled failure through SteadyRoute, such as dogfood-invalid-key-then-fallback, and save 07-*-explain.txt.",
+      "Confirm explain shows the attempted failing provider/key/model and a precise normalized error class."
+    ],
+    "SR-MVP-08": [
+      "Save steadyroute doctor as 08-doctor.txt and explain output for at least one real request as 08-<provider>-explain.txt.",
+      "Confirm usage or quota fields are labeled provider, observed, estimated, or unknown."
+    ],
+    "SR-MVP-09": [
+      "Restart SteadyRoute, prove the same local state still works, and save 09-*-after*.txt plus 09-*-explain.txt.",
+      "Include doctor output after restart so config, DB, ledger, and local_only=true are visible."
+    ],
+    "SR-MVP-10": [
+      "Run a direct /v1/responses request through SteadyRoute and save 10-responses-body.json.",
+      "Save 10-*-explain.txt and confirm endpoint /v1/responses plus final provider/model evidence."
+    ]
+  };
+  const steps = [...(base[scenario.id] ?? ["Capture the missing evidence files and request signals defined by docs/mvp-acceptance.md."])];
+  if (scenario.missing_patterns.length > 0) steps.push(`Add evidence matching: ${scenario.missing_patterns.join(", ")}`);
+  if (scenario.missing_signals.length > 0) steps.push(`Add explain/doctor signals: ${scenario.missing_signals.join(", ")}`);
+  return steps;
 }
 
 function selectEvidenceRoot(root: string, options: AcceptanceStatusOptions): AcceptanceEvidenceSelection {

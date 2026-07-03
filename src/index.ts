@@ -1,4 +1,4 @@
-export { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, initAcceptanceRun } from "./acceptanceCommands.js";
+export { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceStatus, buildAcceptanceTodo, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, formatAcceptanceTodo, initAcceptanceRun } from "./acceptanceCommands.js";
 export { loadConfig } from "./config.js";
 export { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 export { exportDiagnostics } from "./diagnostics.js";

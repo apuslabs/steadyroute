@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, initAcceptanceRun } from "../src/acceptanceCommands.js";
+import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceStatus, buildAcceptanceTodo, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, formatAcceptanceTodo, initAcceptanceRun } from "../src/acceptanceCommands.js";
 
 describe("acceptance commands", () => {
   const roots: string[] = [];
@@ -317,6 +317,42 @@ describe("acceptance commands", () => {
     expect(formatted).toContain("SteadyRoute acceptance check failed");
   });
 
+  it("prints actionable todo items for missing acceptance evidence without running providers", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-todo-test-"));
+    roots.push(root);
+    writeEvidence(root, "run-1/00-doctor.txt", doctorText(root));
+    writeEvidence(root, "run-1/00-models.txt");
+    writeEvidence(root, "run-1/00-health.json");
+    writeEvidence(root, "run-1/00-v1-models.json");
+    writeEvidence(root, "run-1/01-chat-client.txt", "x-steadyroute-request-id: req_chat\n");
+    writeEvidence(root, "run-1/01-explain.txt", [
+      "SteadyRoute request req_chat",
+      "Status: success (HTTP 200)",
+      "Endpoint: /v1/chat/completions",
+      "Final provider/model: openrouter / openrouter/free"
+    ].join("\n"));
+
+    const report = buildAcceptanceTodo({ root, run: "run-1" });
+    const formatted = formatAcceptanceTodo(report);
+
+    expect(report.summary).toMatchObject({
+      required_total: 11,
+      pass_ready_required: 3,
+      todo_required: 8,
+      audit_status: "audit-incomplete"
+    });
+    expect(report.items.map((item) => item.id)).not.toContain("SR-MVP-P0");
+    expect(report.items.map((item) => item.id)).not.toContain("SR-MVP-00");
+    expect(report.items.map((item) => item.id)).not.toContain("SR-MVP-01");
+    expect(report.items.find((item) => item.id === "SR-MVP-03")?.next_steps.join(" ")).toContain("Run Codex CLI");
+    expect(report.items.find((item) => item.id === "SR-MVP-04")?.next_steps.join(" ")).toContain("at least four distinct real providers");
+    expect(formatted).toContain("SteadyRoute acceptance todo");
+    expect(formatted).toContain("Todo required scenarios: 8");
+    expect(formatted).toContain("SR-MVP-03: missing-evidence");
+    expect(formatted).toContain("next: Run Codex CLI against SteadyRoute with wire_api=responses");
+    expect(formatted).toContain("note: This todo list is generated from local evidence files only.");
+  });
+
   it("builds a passing scriptable acceptance check when every required scenario is pass-ready", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-check-pass-test-"));
     roots.push(root);
@@ -362,12 +398,15 @@ describe("acceptance commands", () => {
 
     const result = buildAcceptanceCheck({ root, run: "run-1" });
     const formatted = formatAcceptanceCheck(result);
+    const todo = buildAcceptanceTodo({ root, run: "run-1" });
 
     expect(result.ok).toBe(true);
     expect(result.audit_status).toBe("ready-for-human-review");
     expect(result.pass_ready_required).toBe(11);
     expect(result.review_required).toEqual([]);
     expect(formatted).toContain("SteadyRoute acceptance check passed");
+    expect(todo.items).toEqual([]);
+    expect(formatAcceptanceTodo(todo)).toContain("No local evidence TODOs remain.");
   });
 
   it("requires four distinct provider signals for the provider matrix scenario", () => {

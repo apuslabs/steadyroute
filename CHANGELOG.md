@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `steadyroute acceptance todo` to print remaining local evidence capture tasks without running providers.
+
 ## 0.1.26 - 2026-07-03
 
 - Added `steadyroute acceptance check` for scriptable local evidence gate checks with non-zero exit status on incomplete audit evidence.

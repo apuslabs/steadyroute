@@ -131,6 +131,7 @@ steadyroute acceptance status --latest
 steadyroute acceptance status --run 2026-07-03-smoke
 steadyroute acceptance audit --latest
 steadyroute acceptance check --latest
+steadyroute acceptance todo --latest
 steadyroute acceptance status --json
 ```
 
@@ -189,6 +190,8 @@ required.
 `steadyroute acceptance check` wraps the audit in a scriptable exit code: zero
 only when every required scenario has pass-ready local evidence signals, and
 non-zero otherwise.
+`steadyroute acceptance todo` prints the remaining local evidence files,
+signals, and scenario-specific next steps without running providers.
 
 ## Default Free Routes
 
