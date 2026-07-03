@@ -124,6 +124,8 @@ Check local MVP acceptance evidence coverage without running providers:
 
 ```bash
 steadyroute acceptance status
+steadyroute acceptance status --latest
+steadyroute acceptance status --run 2026-07-03-smoke
 steadyroute acceptance status --json
 ```
 
@@ -167,6 +169,9 @@ provider status, key aliases, recent request metadata, trace ids, attempts, and
 usage evidence. Full request and response bodies are summarized by default.
 `steadyroute acceptance status` scans local evidence files and reports which
 required MVP scenarios have evidence present; it does not mark the gate passed.
+By default it aggregates all files under `.steadyroute-acceptance`; use
+`--latest` or `--run <name>` when checking whether a single acceptance run is
+complete.
 
 ## Default Free Routes
 

@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Added `steadyroute acceptance status --run <name>` and `--latest` so acceptance evidence can be evaluated per run instead of only as a historical aggregate.
+
 ## 0.1.20 - 2026-07-03
 
 - Added a real package entrypoint at `dist/index.js` and CI/package checks to prevent publishing a tarball with missing `main` or CLI files.

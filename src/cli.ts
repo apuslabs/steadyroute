@@ -249,9 +249,11 @@ acceptance
   .command("status")
   .description("Summarize local acceptance evidence file presence without running providers")
   .option("--root <path>", "Acceptance evidence root", ".steadyroute-acceptance")
+  .option("--run <name>", "Restrict evidence scan to one run directory under the evidence root")
+  .option("--latest", "Restrict evidence scan to the newest run directory under the evidence root")
   .option("--json", "Emit JSON")
   .action((options) => {
-    const report = buildAcceptanceStatus({ root: options.root });
+    const report = buildAcceptanceStatus({ root: options.root, run: options.run, latest: Boolean(options.latest) });
     console.log(options.json ? JSON.stringify(report, null, 2) : formatAcceptanceStatus(report));
   });
 

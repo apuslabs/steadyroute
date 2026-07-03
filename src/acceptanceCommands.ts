@@ -3,6 +3,8 @@ import path from "node:path";
 
 export interface AcceptanceStatusOptions {
   root?: string;
+  run?: string;
+  latest?: boolean;
 }
 
 export interface AcceptanceScenarioStatus {
@@ -27,6 +29,7 @@ export interface AcceptanceEvidenceSignals {
 
 export interface AcceptanceStatusReport {
   root: string;
+  selection: AcceptanceEvidenceSelection;
   generated_at: string;
   summary: {
     required_total: number;
@@ -36,6 +39,14 @@ export interface AcceptanceStatusReport {
   };
   scenarios: AcceptanceScenarioStatus[];
   notes: string[];
+}
+
+export interface AcceptanceEvidenceSelection {
+  mode: "aggregate" | "run" | "latest";
+  run: string | null;
+  evidence_root: string;
+  available_runs: string[];
+  warnings: string[];
 }
 
 interface ScenarioRequirement {
@@ -62,7 +73,8 @@ const SCENARIOS: ScenarioRequirement[] = [
 
 export function buildAcceptanceStatus(options: AcceptanceStatusOptions = {}): AcceptanceStatusReport {
   const root = path.resolve(options.root ?? ".steadyroute-acceptance");
-  const files = listEvidenceFiles(root);
+  const selection = selectEvidenceRoot(root, options);
+  const files = listEvidenceFiles(selection.evidence_root);
   const projectFiles = ["docs/providers/2026-07-02-provider-coverage-matrix.md"].filter((file) => fs.existsSync(file));
   const searchable = [...files, ...projectFiles];
   const scenarios = SCENARIOS.map((scenario) => scenarioStatus(scenario, searchable));
@@ -70,6 +82,7 @@ export function buildAcceptanceStatus(options: AcceptanceStatusOptions = {}): Ac
   const requiredTotal = scenarios.filter((scenario) => scenario.required).length;
   return {
     root,
+    selection,
     generated_at: new Date().toISOString(),
     summary: {
       required_total: requiredTotal,
@@ -79,6 +92,7 @@ export function buildAcceptanceStatus(options: AcceptanceStatusOptions = {}): Ac
     },
     scenarios,
     notes: [
+      ...selection.warnings,
       "This command only checks local evidence file presence. It does not prove scenario pass/fail.",
       "Final MVP acceptance still requires inspecting request ids, provider/model evidence, and real dogfood outputs."
     ]
@@ -89,10 +103,17 @@ export function formatAcceptanceStatus(report: AcceptanceStatusReport): string {
   const lines = [
     "SteadyRoute acceptance evidence status",
     `Evidence root: ${report.root}`,
+    `Mode: ${report.selection.mode}`,
+    `Selected root: ${report.selection.evidence_root}`,
     `Required evidence: ${report.summary.required_with_evidence}/${report.summary.required_total}`,
     `Gate status: ${report.summary.gate_status}`,
     ""
   ];
+  if (report.selection.run) lines.splice(3, 0, `Run: ${report.selection.run}`);
+  if (report.selection.available_runs.length > 0) {
+    lines.push(`Available runs: ${report.selection.available_runs.join(", ")}`);
+    lines.push("");
+  }
   for (const scenario of report.scenarios) {
     lines.push(`${scenario.id}: ${scenario.status}`);
     if (scenario.evidence_files.length > 0) {
@@ -108,6 +129,96 @@ export function formatAcceptanceStatus(report: AcceptanceStatusReport): string {
   lines.push("");
   for (const note of report.notes) lines.push(`note: ${note}`);
   return lines.join("\n");
+}
+
+function selectEvidenceRoot(root: string, options: AcceptanceStatusOptions): AcceptanceEvidenceSelection {
+  const availableRuns = listRunDirectories(root);
+  const requestedRun = options.run?.trim();
+  const warnings: string[] = [];
+
+  if (requestedRun) {
+    if (!isSafeRunName(requestedRun)) {
+      warnings.push(`Ignored invalid run name: ${requestedRun}`);
+      return {
+        mode: "run",
+        run: requestedRun,
+        evidence_root: path.join(root, "__invalid_run__"),
+        available_runs: availableRuns,
+        warnings
+      };
+    }
+    const evidenceRoot = path.join(root, requestedRun);
+    if (!fs.existsSync(evidenceRoot) || !fs.statSync(evidenceRoot).isDirectory()) {
+      warnings.push(`Selected run has no evidence directory: ${requestedRun}`);
+    }
+    return {
+      mode: "run",
+      run: requestedRun,
+      evidence_root: evidenceRoot,
+      available_runs: availableRuns,
+      warnings
+    };
+  }
+
+  if (options.latest) {
+    const latestRun = latestRunDirectory(root);
+    if (!latestRun) {
+      warnings.push(`No run directories found under ${root}`);
+      return {
+        mode: "latest",
+        run: null,
+        evidence_root: path.join(root, "__missing_latest_run__"),
+        available_runs: availableRuns,
+        warnings
+      };
+    }
+    return {
+      mode: "latest",
+      run: latestRun,
+      evidence_root: path.join(root, latestRun),
+      available_runs: availableRuns,
+      warnings
+    };
+  }
+
+  return {
+    mode: "aggregate",
+    run: null,
+    evidence_root: root,
+    available_runs: availableRuns,
+    warnings
+  };
+}
+
+function listRunDirectories(root: string): string[] {
+  if (!fs.existsSync(root)) return [];
+  try {
+    return fs.readdirSync(root, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."))
+      .map((entry) => entry.name)
+      .sort();
+  } catch {
+    return [];
+  }
+}
+
+function latestRunDirectory(root: string): string | null {
+  const candidates = listRunDirectories(root)
+    .map((name) => {
+      try {
+        return { name, mtimeMs: fs.statSync(path.join(root, name)).mtimeMs };
+      } catch {
+        return null;
+      }
+    })
+    .filter((candidate): candidate is { name: string; mtimeMs: number } => Boolean(candidate));
+
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs || right.name.localeCompare(left.name));
+  return candidates[0]?.name ?? null;
+}
+
+function isSafeRunName(run: string): boolean {
+  return run !== "." && run !== ".." && !run.includes("/") && !run.includes("\\") && !path.isAbsolute(run);
 }
 
 function scenarioStatus(scenario: ScenarioRequirement, files: string[]): AcceptanceScenarioStatus {
