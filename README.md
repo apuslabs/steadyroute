@@ -179,6 +179,8 @@ filename patterns, machine-readable audit signals, and manual review notes.
 `steadyroute acceptance init` creates a local evidence run directory with a
 manifest, a `commands.md` capture checklist, a `capture.sh` helper template,
 and `SR_EVIDENCE_DIR` exports for scenario capture.
+The helper template includes local-only request-id listing and explain capture
+helpers so saved evidence can be completed without copying ids by hand.
 `steadyroute acceptance status` scans local evidence files and reports which
 required MVP scenarios have evidence present; it does not mark the gate passed.
 By default it aggregates all files under `.steadyroute-acceptance`; use

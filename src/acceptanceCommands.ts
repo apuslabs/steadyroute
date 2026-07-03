@@ -347,9 +347,47 @@ explain_request() {
   steadyroute explain "$request_id" | tee "$SR_EVIDENCE_DIR/$output"
 }
 
+list_request_ids() {
+  steadyroute acceptance ids --root "$(dirname "$SR_EVIDENCE_DIR")" --run "$(basename "$SR_EVIDENCE_DIR")"
+}
+
+capture_explains() {
+  node - "$SR_EVIDENCE_DIR" <<'NODE'
+const { spawnSync } = require("node:child_process");
+const { writeFileSync } = require("node:fs");
+const { join } = require("node:path");
+
+const evidenceDir = process.argv[2];
+const root = join(evidenceDir, "..");
+const run = evidenceDir.split(/[\\\\/]/).filter(Boolean).pop();
+const ids = spawnSync("steadyroute", ["acceptance", "ids", "--root", root, "--run", run, "--json"], { encoding: "utf8" });
+if (ids.status !== 0) {
+  process.stderr.write(ids.stderr || ids.stdout);
+  process.exit(ids.status || 1);
+}
+const report = JSON.parse(ids.stdout);
+let count = 0;
+for (const scenario of report.scenarios) {
+  const prefix = scenario.id.replace("SR-MVP-", "");
+  for (const hit of scenario.request_ids) {
+    const out = spawnSync("steadyroute", ["explain", hit.request_id], { encoding: "utf8" });
+    if (out.status !== 0) {
+      process.stderr.write(out.stderr || out.stdout);
+      process.exit(out.status || 1);
+    }
+    writeFileSync(join(evidenceDir, prefix + "-explain-" + hit.request_id + ".txt"), out.stdout);
+    count += 1;
+  }
+}
+console.log("Captured " + count + " explain files.");
+NODE
+}
+
 echo "Available helper functions:"
 echo "  capture_baseline"
 echo "  explain_request <request-id> <output-file>"
+echo "  list_request_ids"
+echo "  capture_explains"
 `;
 }
 
@@ -509,6 +547,7 @@ steadyroute explain "$REQUEST_ID" | tee "$SR_EVIDENCE_DIR/10-explain.txt"
 
 \`\`\`bash
 steadyroute acceptance audit --run ${run}
+steadyroute acceptance ids --run ${run}
 steadyroute acceptance todo --run ${run}
 steadyroute acceptance check --run ${run}
 \`\`\`

@@ -72,7 +72,10 @@ describe("acceptance commands", () => {
     expect(fs.statSync(result.capture_script_path).mode & 0o111).toBeGreaterThan(0);
     expect(fs.readFileSync(result.capture_script_path, "utf8")).toContain("capture_baseline()");
     expect(fs.readFileSync(result.capture_script_path, "utf8")).toContain("This script is a capture template.");
+    expect(fs.readFileSync(result.capture_script_path, "utf8")).toContain("list_request_ids()");
+    expect(fs.readFileSync(result.capture_script_path, "utf8")).toContain("capture_explains()");
     expect(fs.readFileSync(result.commands_path, "utf8")).toContain("SR-MVP-03 Codex Responses Dogfood");
+    expect(fs.readFileSync(result.commands_path, "utf8")).toContain("steadyroute acceptance ids --run manual-smoke");
     expect(fs.readFileSync(result.commands_path, "utf8")).toContain("steadyroute acceptance check --run manual-smoke");
     expect(formatted).toContain("Run: manual-smoke");
     expect(formatted).toContain("Capture script:");
