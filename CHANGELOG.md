@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.1.21 - 2026-07-03
 
-- Added `steadyroute acceptance status --run <name>` and `--latest` so acceptance evidence can be evaluated per run instead of only as a historical aggregate.
+- Added per-run acceptance evidence selection with `steadyroute acceptance status --run <name>` and `--latest`.
+
+## Unreleased
 
 ## 0.1.20 - 2026-07-03
 
