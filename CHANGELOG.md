@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.28 - 2026-07-03
+
 - Added capture checklist and helper script generation to `steadyroute acceptance init`.
 
 ## 0.1.27 - 2026-07-03
