@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.24 - 2026-07-03
+
 - Added `steadyroute acceptance init` to create local evidence run directories, manifests, and `SR_EVIDENCE_DIR` shell exports.
 
 ## 0.1.23 - 2026-07-03
