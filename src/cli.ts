@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
-import { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceInit, formatAcceptanceStatus, initAcceptanceRun } from "./acceptanceCommands.js";
+import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, initAcceptanceRun } from "./acceptanceCommands.js";
 import { loadConfig } from "./config.js";
 import { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 import { exportDiagnostics } from "./diagnostics.js";
@@ -245,6 +245,15 @@ diagnostics
   });
 
 const acceptance = program.command("acceptance").description("Inspect local MVP acceptance evidence");
+acceptance
+  .command("list")
+  .description("List MVP acceptance scenarios, evidence file patterns, and audit signals")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const rows = acceptanceScenarioListRows();
+    console.log(options.json ? JSON.stringify(rows, null, 2) : formatAcceptanceScenarioList(rows));
+  });
+
 acceptance
   .command("init")
   .description("Create a local acceptance evidence run directory and manifest")

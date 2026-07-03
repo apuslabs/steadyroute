@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceInit, formatAcceptanceStatus, initAcceptanceRun } from "../src/acceptanceCommands.js";
+import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, initAcceptanceRun } from "../src/acceptanceCommands.js";
 
 describe("acceptance commands", () => {
   const roots: string[] = [];
@@ -24,6 +24,23 @@ describe("acceptance commands", () => {
     expect(formatted).toContain("Mode: aggregate");
     expect(formatted).toContain("Gate status: evidence-incomplete");
     expect(formatted).toContain("note: This command only checks local evidence file presence.");
+  });
+
+  it("lists acceptance scenarios with evidence patterns and audit signals", () => {
+    const rows = acceptanceScenarioListRows();
+    const formatted = formatAcceptanceScenarioList(rows);
+    const responses = rows.find((row) => row.id === "SR-MVP-10");
+
+    expect(rows).toHaveLength(11);
+    expect(rows.every((row) => row.required)).toBe(true);
+    expect(responses).toMatchObject({
+      required: true,
+      required_signals: ["request_id", "endpoint:/v1/responses", "provider", "success_status"]
+    });
+    expect(responses?.evidence_patterns.some((pattern) => pattern.includes("10-responses-body"))).toBe(true);
+    expect(formatted).toContain("SteadyRoute MVP acceptance scenarios");
+    expect(formatted).toContain("Required: 11/11");
+    expect(formatted).toContain("SR-MVP-10: required");
   });
 
   it("initializes a local evidence run manifest without proving acceptance", () => {

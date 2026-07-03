@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `steadyroute acceptance list` to print required MVP scenario ids, evidence patterns, audit signals, and review notes.
+
 ## 0.1.24 - 2026-07-03
 
 - Added `steadyroute acceptance init` to create local evidence run directories, manifests, and `SR_EVIDENCE_DIR` shell exports.

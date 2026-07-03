@@ -27,6 +27,14 @@ export interface AcceptanceRunManifest {
   notes: string[];
 }
 
+export interface AcceptanceScenarioListRow {
+  id: string;
+  required: boolean;
+  evidence_patterns: string[];
+  required_signals: string[];
+  review_notes: string[];
+}
+
 export interface AcceptanceStatusOptions {
   root?: string;
   run?: string;
@@ -237,6 +245,32 @@ export function formatAcceptanceInit(result: AcceptanceInitResult, options: { pr
     "Run the MVP scenarios and save command output plus steadyroute explain output into this directory.",
     `Then inspect it with: steadyroute acceptance audit --run ${result.run}`
   ].join("\n");
+}
+
+export function acceptanceScenarioListRows(): AcceptanceScenarioListRow[] {
+  return SCENARIOS.map((scenario) => ({
+    id: scenario.id,
+    required: scenario.required,
+    evidence_patterns: scenario.patterns.map((pattern) => `${pattern.scope}:${pattern.pattern.source}`),
+    required_signals: scenario.requiredSignals,
+    review_notes: scenario.reviewNotes
+  }));
+}
+
+export function formatAcceptanceScenarioList(rows: AcceptanceScenarioListRow[]): string {
+  const requiredCount = rows.filter((row) => row.required).length;
+  const lines = [
+    "SteadyRoute MVP acceptance scenarios",
+    `Required: ${requiredCount}/${rows.length}`,
+    ""
+  ];
+  for (const row of rows) {
+    lines.push(`${row.id}: ${row.required ? "required" : "optional"}`);
+    if (row.evidence_patterns.length > 0) lines.push(`  evidence: ${row.evidence_patterns.join(", ")}`);
+    if (row.required_signals.length > 0) lines.push(`  signals: ${row.required_signals.join(", ")}`);
+    for (const note of row.review_notes) lines.push(`  review: ${note}`);
+  }
+  return lines.join("\n");
 }
 
 export function buildAcceptanceStatus(options: AcceptanceStatusOptions = {}): AcceptanceStatusReport {
