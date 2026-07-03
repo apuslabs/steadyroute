@@ -41,7 +41,7 @@ concurrency:
 
 jobs:
   release:
-    name: Bump, Test, and Tag
+    name: Bump, Test, Tag, and Publish
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -119,15 +119,46 @@ jobs:
           git tag "v${VERSION}"
           git push origin "HEAD:${{ inputs.target_ref }}" "refs/tags/v${VERSION}"
 
-      - name: Publish handoff
+      - name: Publish to npm
         if: ${{ !inputs.dry_run }}
         env:
           VERSION: ${{ steps.prepare.outputs.version }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
-          {
-            echo "Release files were committed and v${VERSION} was pushed."
-            echo "The tag push triggers the Publish workflow, which publishes npm and creates or updates the GitHub Release."
-          } >> "$GITHUB_STEP_SUMMARY"
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          if npm view "${PACKAGE_NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "${PACKAGE_NAME}@${VERSION} already exists on npm; skipping publish."
+          else
+            npm publish --access public --provenance
+          fi
+
+      - name: Create GitHub Release
+        if: ${{ !inputs.dry_run }}
+        env:
+          VERSION: ${{ steps.prepare.outputs.version }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          NOTES_FILE="$(mktemp)"
+          awk -v version="$VERSION" '
+            $1 == "##" && $2 == version {capture=1; next}
+            capture && /^## / {exit}
+            capture {print}
+          ' CHANGELOG.md > "$NOTES_FILE"
+          if [ ! -s "$NOTES_FILE" ]; then
+            printf 'Release v%s\n' "$VERSION" > "$NOTES_FILE"
+          fi
+          if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release edit "v${VERSION}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "v${VERSION}" \
+              --notes-file "$NOTES_FILE"
+          else
+            gh release create "v${VERSION}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "v${VERSION}" \
+              --notes-file "$NOTES_FILE" \
+              --verify-tag
+          fi
 
       - name: Write summary
         if: always()
@@ -143,6 +174,6 @@ jobs:
             echo "- Workflow ref: ${GITHUB_REF_NAME}"
             echo "- Target ref: ${{ inputs.target_ref }}"
             if [ "${DRY_RUN}" != "true" ] && [ -n "${VERSION}" ]; then
-              echo "- Publish handoff: tag v${VERSION} triggers the Publish workflow"
+              echo "- Published: npm package and GitHub Release for v${VERSION}"
             fi
           } >> "$GITHUB_STEP_SUMMARY"
