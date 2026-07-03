@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Changed the manual release workflow to publish npm and create the GitHub Release directly after tagging.
+
 ## 0.1.31 - 2026-07-03
 
 - Made the manual release workflow accept existing `Unreleased` changelog notes without requiring duplicate dispatch notes.
