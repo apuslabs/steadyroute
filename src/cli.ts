@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
-import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceStatus, buildAcceptanceTodo, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, formatAcceptanceTodo, initAcceptanceRun } from "./acceptanceCommands.js";
+import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceIds, buildAcceptanceStatus, buildAcceptanceTodo, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceIds, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, formatAcceptanceTodo, initAcceptanceRun } from "./acceptanceCommands.js";
 import { loadConfig } from "./config.js";
 import { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 import { exportDiagnostics } from "./diagnostics.js";
@@ -314,6 +314,18 @@ acceptance
   .action((options) => {
     const report = buildAcceptanceTodo({ root: options.root, run: options.run, latest: Boolean(options.latest) });
     console.log(options.json ? JSON.stringify(report, null, 2) : formatAcceptanceTodo(report));
+  });
+
+acceptance
+  .command("ids")
+  .description("Extract SteadyRoute request ids from local evidence files")
+  .option("--root <path>", "Acceptance evidence root", ".steadyroute-acceptance")
+  .option("--run <name>", "Restrict evidence scan to one run directory under the evidence root")
+  .option("--latest", "Restrict evidence scan to the newest run directory under the evidence root")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const report = buildAcceptanceIds({ root: options.root, run: options.run, latest: Boolean(options.latest) });
+    console.log(options.json ? JSON.stringify(report, null, 2) : formatAcceptanceIds(report));
   });
 
 const integrations = program.command("integrations").description("Configure local client integrations");

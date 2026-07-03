@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceStatus, buildAcceptanceTodo, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, formatAcceptanceTodo, initAcceptanceRun } from "../src/acceptanceCommands.js";
+import { acceptanceScenarioListRows, buildAcceptanceAudit, buildAcceptanceCheck, buildAcceptanceIds, buildAcceptanceStatus, buildAcceptanceTodo, formatAcceptanceAudit, formatAcceptanceCheck, formatAcceptanceIds, formatAcceptanceInit, formatAcceptanceScenarioList, formatAcceptanceStatus, formatAcceptanceTodo, initAcceptanceRun } from "../src/acceptanceCommands.js";
 
 describe("acceptance commands", () => {
   const roots: string[] = [];
@@ -363,6 +363,46 @@ describe("acceptance commands", () => {
     expect(formatted).toContain("SR-MVP-03: missing-evidence");
     expect(formatted).toContain("next: Run Codex CLI against SteadyRoute with wire_api=responses");
     expect(formatted).toContain("note: This todo list is generated from local evidence files only.");
+  });
+
+  it("extracts request ids from local evidence files and prints explain commands", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-ids-test-"));
+    roots.push(root);
+    writeEvidence(root, "run-1/01-chat-headers.txt", [
+      "HTTP/1.1 200 OK",
+      "x-steadyroute-request-id: req_chat_header"
+    ].join("\n"));
+    writeEvidence(root, "run-1/01-chat-body.json", JSON.stringify({
+      steadyroute_request_id: "req_chat_body",
+      steadyroute: { request_id: "req_chat_nested" }
+    }));
+    writeEvidence(root, "run-1/03-codex-responses.txt", [
+      "Using SteadyRoute",
+      "request_id=req_codex_log"
+    ].join("\n"));
+    writeEvidence(root, "run-1/03-explain.txt", [
+      "SteadyRoute request req_codex_explain",
+      "Status: success (HTTP 200)"
+    ].join("\n"));
+    writeEvidence(root, "run-1/notes.txt", "x-steadyroute-request-id: req_ignored\n");
+
+    const report = buildAcceptanceIds({ root, run: "run-1" });
+    const formatted = formatAcceptanceIds(report);
+    const chat = report.scenarios.find((scenario) => scenario.id === "SR-MVP-01");
+    const codex = report.scenarios.find((scenario) => scenario.id === "SR-MVP-03");
+
+    expect(report.summary).toMatchObject({
+      request_ids_total: 5,
+      scenarios_with_ids: 2
+    });
+    expect(chat?.request_ids.map((hit) => hit.request_id)).toEqual(["req_chat_body", "req_chat_header", "req_chat_nested"]);
+    expect(codex?.request_ids.map((hit) => hit.request_id)).toEqual(["req_codex_explain", "req_codex_log"]);
+    expect(chat?.request_ids[0].explain_command).toContain("steadyroute explain 'req_chat_body'");
+    expect(chat?.request_ids[0].explain_command).toContain("$SR_EVIDENCE_DIR/01-explain-req_chat_body.txt");
+    expect(formatted).toContain("SteadyRoute acceptance request ids");
+    expect(formatted).toContain("SR-MVP-01: 3 request ids");
+    expect(formatted).toContain("explain: steadyroute explain 'req_chat_body'");
+    expect(formatted).toContain("note: This command only extracts request ids from local evidence files.");
   });
 
   it("builds a passing scriptable acceptance check when every required scenario is pass-ready", () => {

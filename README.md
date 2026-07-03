@@ -132,6 +132,7 @@ steadyroute acceptance status --run 2026-07-03-smoke
 steadyroute acceptance audit --latest
 steadyroute acceptance check --latest
 steadyroute acceptance todo --latest
+steadyroute acceptance ids --latest
 steadyroute acceptance status --json
 ```
 
@@ -193,6 +194,8 @@ only when every required scenario has pass-ready local evidence signals, and
 non-zero otherwise.
 `steadyroute acceptance todo` prints the remaining local evidence files,
 signals, and scenario-specific next steps without running providers.
+`steadyroute acceptance ids` extracts request ids from saved local evidence
+files and prints matching `steadyroute explain` commands.
 
 ## Default Free Routes
 

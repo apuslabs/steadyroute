@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `steadyroute acceptance ids` to extract request ids from local evidence files and print explain commands.
+
 ## 0.1.28 - 2026-07-03
 
 - Added capture checklist and helper script generation to `steadyroute acceptance init`.

@@ -130,6 +130,30 @@ export interface AcceptanceTodoItem {
   review_notes: string[];
 }
 
+export interface AcceptanceIdsReport {
+  root: string;
+  selection: AcceptanceEvidenceSelection;
+  generated_at: string;
+  summary: {
+    files_scanned: number;
+    request_ids_total: number;
+    scenarios_with_ids: number;
+  };
+  scenarios: AcceptanceScenarioRequestIds[];
+  notes: string[];
+}
+
+export interface AcceptanceScenarioRequestIds {
+  id: string;
+  request_ids: AcceptanceRequestIdHit[];
+}
+
+export interface AcceptanceRequestIdHit {
+  request_id: string;
+  files: string[];
+  explain_command: string;
+}
+
 export interface AcceptanceEvidenceSelection {
   mode: "aggregate" | "run" | "latest";
   run: string | null;
@@ -705,6 +729,90 @@ export function formatAcceptanceTodo(report: AcceptanceTodoReport): string {
   return lines.join("\n");
 }
 
+export function buildAcceptanceIds(options: AcceptanceStatusOptions = {}): AcceptanceIdsReport {
+  const root = path.resolve(options.root ?? ".steadyroute-acceptance");
+  const selection = selectEvidenceRoot(root, options);
+  const files = listEvidenceFiles(selection.evidence_root);
+  const idsByScenario = new Map<string, Map<string, Set<string>>>();
+
+  for (const scenario of SCENARIOS) idsByScenario.set(scenario.id, new Map());
+  for (const file of files) {
+    const scenario = scenarioIdFromEvidenceFile(file);
+    if (!scenario) continue;
+    const text = readSmallText(file);
+    if (!text) continue;
+    const ids = extractRequestIds(text);
+    const scenarioMap = idsByScenario.get(scenario);
+    if (!scenarioMap) continue;
+    for (const id of ids) {
+      const idFiles = scenarioMap.get(id) ?? new Set<string>();
+      idFiles.add(file);
+      scenarioMap.set(id, idFiles);
+    }
+  }
+
+  const scenarios: AcceptanceScenarioRequestIds[] = [...idsByScenario.entries()]
+    .map(([id, requestIds]) => ({
+      id,
+      request_ids: [...requestIds.entries()]
+        .map(([requestId, requestFiles]) => ({
+          request_id: requestId,
+          files: [...requestFiles].sort(),
+          explain_command: explainCommandFor(id, requestId)
+        }))
+        .sort((left, right) => left.request_id.localeCompare(right.request_id))
+    }))
+    .filter((scenario) => scenario.request_ids.length > 0);
+
+  const requestIdsTotal = scenarios.reduce((sum, scenario) => sum + scenario.request_ids.length, 0);
+
+  return {
+    root,
+    selection,
+    generated_at: new Date().toISOString(),
+    summary: {
+      files_scanned: files.length,
+      request_ids_total: requestIdsTotal,
+      scenarios_with_ids: scenarios.length
+    },
+    scenarios,
+    notes: [
+      ...selection.warnings,
+      "This command only extracts request ids from local evidence files. It does not query the ledger or run providers.",
+      "Run the printed explain commands and save their output into the same evidence directory."
+    ]
+  };
+}
+
+export function formatAcceptanceIds(report: AcceptanceIdsReport): string {
+  const lines = [
+    "SteadyRoute acceptance request ids",
+    `Evidence root: ${report.root}`,
+    `Mode: ${report.selection.mode}`,
+    `Selected root: ${report.selection.evidence_root}`,
+    `Files scanned: ${report.summary.files_scanned}`,
+    `Request ids: ${report.summary.request_ids_total}`,
+    ""
+  ];
+  if (report.selection.run) lines.splice(3, 0, `Run: ${report.selection.run}`);
+  if (report.scenarios.length === 0) {
+    lines.push("No request ids found in local evidence files.");
+  } else {
+    for (const scenario of report.scenarios) {
+      lines.push(`${scenario.id}: ${scenario.request_ids.length} request id${scenario.request_ids.length === 1 ? "" : "s"}`);
+      for (const hit of scenario.request_ids) {
+        lines.push(`  request_id: ${hit.request_id}`);
+        for (const file of hit.files.slice(0, 3)) lines.push(`  file: ${file}`);
+        if (hit.files.length > 3) lines.push(`  file: +${hit.files.length - 3} more`);
+        lines.push(`  explain: ${hit.explain_command}`);
+      }
+    }
+  }
+  lines.push("");
+  for (const note of report.notes) lines.push(`note: ${note}`);
+  return lines.join("\n");
+}
+
 export function formatAcceptanceAudit(report: AcceptanceAuditReport): string {
   const lines = [
     "SteadyRoute acceptance evidence audit",
@@ -799,6 +907,47 @@ function todoStepsFor(scenario: AcceptanceScenarioAudit): string[] {
   if (scenario.missing_patterns.length > 0) steps.push(`Add evidence matching: ${scenario.missing_patterns.join(", ")}`);
   if (scenario.missing_signals.length > 0) steps.push(`Add explain/doctor signals: ${scenario.missing_signals.join(", ")}`);
   return steps;
+}
+
+function scenarioIdFromEvidenceFile(file: string): string | null {
+  const basename = path.posix.basename(normalizePath(file));
+  for (const scenario of SCENARIOS) {
+    const match = scenario.id.match(/^SR-MVP-(P0|\d+)/);
+    const suffix = match?.[1];
+    if (!suffix || suffix === "P0") continue;
+    if (basename.startsWith(`${suffix}-`)) return scenario.id;
+  }
+  return null;
+}
+
+function extractRequestIds(text: string): string[] {
+  const ids = new Set<string>();
+  const patterns = [
+    /\bx-steadyroute-request-id:\s*([A-Za-z0-9_-]+)/gi,
+    /"steadyroute_request_id"\s*:\s*"([^"]+)"/g,
+    /"request_id"\s*:\s*"([^"]+)"/g,
+    /"id"\s*:\s*"(req_[^"]+)"/g,
+    /\bSteadyRoute request\s+([A-Za-z0-9_-]+)/g,
+    /\brequest[_ -]?id[:=]\s*([A-Za-z0-9_-]+)/gi
+  ];
+  for (const pattern of patterns) {
+    for (const match of text.matchAll(pattern)) {
+      const id = match[1]?.trim();
+      if (id && isLikelyRequestId(id)) ids.add(id);
+    }
+  }
+  return [...ids].sort();
+}
+
+function isLikelyRequestId(id: string): boolean {
+  if (id.length < 4 || id.length > 128) return false;
+  return /^[A-Za-z0-9_-]+$/.test(id);
+}
+
+function explainCommandFor(scenarioId: string, requestId: string): string {
+  const prefix = scenarioId.replace("SR-MVP-", "");
+  const safeId = shellQuote(requestId);
+  return `steadyroute explain ${safeId} | tee "$SR_EVIDENCE_DIR/${prefix}-explain-${requestId}.txt"`;
 }
 
 function selectEvidenceRoot(root: string, options: AcceptanceStatusOptions): AcceptanceEvidenceSelection {
