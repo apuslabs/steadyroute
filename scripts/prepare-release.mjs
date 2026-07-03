@@ -77,16 +77,13 @@ function nextVersion(current, exactVersion, bump) {
 }
 
 function normalizeNotes(rawNotes) {
-  const notes = String(rawNotes)
+  return String(rawNotes)
     .trim()
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => `- ${line.replace(/^[-*]\s+/, "")}`)
     .join("\n");
-
-  if (!notes) fail("Release notes are required");
-  return notes;
 }
 
 function updateChangelog(changelog, version, notes) {
@@ -97,6 +94,7 @@ function updateChangelog(changelog, version, notes) {
   const unreleased = unreleasedIndex >= 0 ? sections.splice(unreleasedIndex, 1)[0] : "## Unreleased\n\n";
   const unreleasedBody = unreleased.replace(/^## Unreleased[^\n]*\n?/, "").trim();
   const combinedNotes = [unreleasedBody, notes].filter(Boolean).join("\n");
+  if (!combinedNotes) fail("Release notes are required when CHANGELOG.md has no Unreleased entries");
   const entry = `## ${version} - ${shanghaiDate()}\n\n${combinedNotes}\n\n`;
   return `${marker}\n\n## Unreleased\n\n${entry}${sections.join("").replace(/^\s*/, "")}`;
 }
@@ -117,6 +115,11 @@ if (compareVersion(target, current) <= 0) {
 
 const version = formatVersion(target);
 const notes = normalizeNotes(args.notes);
+const changelog = fs.readFileSync(changelogPath, "utf8");
+if (new RegExp(`^## ${version} - `, "m").test(changelog)) {
+  fail(`CHANGELOG.md already contains a ${version} entry`);
+}
+const nextChangelog = updateChangelog(changelog, version, notes);
 
 pkg.version = version;
 fs.writeFileSync(pkgPath, `${JSON.stringify(pkg, null, 2)}\n`);
@@ -126,12 +129,7 @@ lock.version = version;
 if (lock.packages && lock.packages[""]) lock.packages[""].version = version;
 fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
 
-const changelog = fs.readFileSync(changelogPath, "utf8");
-if (new RegExp(`^## ${version} - `, "m").test(changelog)) {
-  fail(`CHANGELOG.md already contains a ${version} entry`);
-}
-
-fs.writeFileSync(changelogPath, updateChangelog(changelog, version, notes));
+fs.writeFileSync(changelogPath, nextChangelog);
 
 fs.writeFileSync(path.resolve(root, args.versionFile), `${version}\n`);
 if (args.githubOutput) fs.appendFileSync(path.resolve(args.githubOutput), `version=${version}\n`);

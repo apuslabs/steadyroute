@@ -17,8 +17,8 @@ on:
         required: false
         type: string
       notes:
-        description: 'Changelog note(s); one bullet per line'
-        required: true
+        description: 'Optional extra changelog note(s); one bullet per line. Leave empty when Unreleased already has notes.'
+        required: false
         type: string
       dry_run:
         description: 'Validate only; do not commit or tag'
@@ -66,7 +66,7 @@ jobs:
         env:
           INPUT_BUMP: ${{ inputs.bump }}
           INPUT_VERSION: ${{ inputs.version }}
-          RELEASE_NOTES: ${{ inputs.notes }}
+          RELEASE_NOTES: ${{ inputs.notes || '' }}
         run: |
           node scripts/prepare-release.mjs
           git diff -- package.json package-lock.json CHANGELOG.md

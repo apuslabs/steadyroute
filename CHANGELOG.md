@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Made the manual release workflow accept existing `Unreleased` changelog notes without requiring duplicate dispatch notes.
+
 ## 0.1.30 - 2026-07-03
 
 - Added request-id listing and bulk explain helper functions to generated acceptance capture scripts.
