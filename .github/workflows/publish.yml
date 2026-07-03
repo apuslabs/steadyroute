@@ -1,13 +1,10 @@
 name: Publish
 
 on:
-  push:
-    tags:
-      - 'v*.*.*'
   workflow_dispatch:
     inputs:
       publish:
-        description: 'Publish to npm when true and the ref is a v*.*.* tag'
+        description: 'Fallback publish for an existing v*.*.* tag. Select the tag as the workflow ref and set true.'
         required: true
         default: 'false'
         type: choice
@@ -67,7 +64,7 @@ jobs:
           fi
 
       - name: Publish to npm
-        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.publish == 'true')
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.publish == 'true'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
@@ -80,7 +77,7 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v') && (github.event_name == 'push' || inputs.publish == 'true')
+        if: startsWith(github.ref, 'refs/tags/v') && inputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

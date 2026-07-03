@@ -25,6 +25,18 @@ on:
         description: 'Optional extra changelog note(s); one bullet per line. Leave empty when Unreleased already has notes.'
         required: false
         type: string
+      validation_summary:
+        description: 'Optional release validation summary. Include real-provider and dogfood status for MVP candidate releases.'
+        required: false
+        type: string
+      validation_evidence:
+        description: 'Optional evidence references: acceptance directory names, request ids, provider matrix snapshots, or artifact URLs.'
+        required: false
+        type: string
+      known_gaps:
+        description: 'Optional known gaps or blocked provider-auth steps; one item per line is easiest to scan.'
+        required: false
+        type: string
       dry_run:
         description: 'Validate only; do not commit or tag'
         required: true
@@ -137,6 +149,9 @@ jobs:
         env:
           VERSION: ${{ steps.prepare.outputs.version }}
           GH_TOKEN: ${{ github.token }}
+          VALIDATION_SUMMARY: ${{ inputs.validation_summary || '' }}
+          VALIDATION_EVIDENCE: ${{ inputs.validation_evidence || '' }}
+          KNOWN_GAPS: ${{ inputs.known_gaps || '' }}
         run: |
           NOTES_FILE="$(mktemp)"
           awk -v version="$VERSION" '
@@ -147,6 +162,33 @@ jobs:
           if [ ! -s "$NOTES_FILE" ]; then
             printf 'Release v%s\n' "$VERSION" > "$NOTES_FILE"
           fi
+          append_release_section() {
+            title="$1"
+            content="$2"
+            fallback="$3"
+            {
+              echo
+              echo "## ${title}"
+              echo
+            } >> "$NOTES_FILE"
+            if [ -n "$(printf '%s' "$content" | tr -d '[:space:]')" ]; then
+              printf '%s\n' "$content" >> "$NOTES_FILE"
+            else
+              printf '%s\n' "$fallback" >> "$NOTES_FILE"
+            fi
+          }
+          append_release_section \
+            "Validation Summary" \
+            "$VALIDATION_SUMMARY" \
+            "Automated release workflow completed install, build, typecheck, tests, npm pack dry-run, and package metadata checks. Final MVP acceptance still requires reviewed local provider and dogfood evidence."
+          append_release_section \
+            "Validation Evidence" \
+            "$VALIDATION_EVIDENCE" \
+            "No acceptance evidence directory, provider matrix snapshot, or request ids were provided at dispatch time."
+          append_release_section \
+            "Known Gaps" \
+            "$KNOWN_GAPS" \
+            "No known gaps or blocked provider-auth steps were provided at dispatch time."
           if gh release view "v${VERSION}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             gh release edit "v${VERSION}" \
               --repo "$GITHUB_REPOSITORY" \
@@ -173,6 +215,9 @@ jobs:
             echo "- Dry run: ${DRY_RUN}"
             echo "- Workflow ref: ${GITHUB_REF_NAME}"
             echo "- Target ref: ${{ inputs.target_ref }}"
+            echo "- Validation summary provided: ${{ inputs.validation_summary != '' }}"
+            echo "- Validation evidence provided: ${{ inputs.validation_evidence != '' }}"
+            echo "- Known gaps provided: ${{ inputs.known_gaps != '' }}"
             if [ "${DRY_RUN}" != "true" ] && [ -n "${VERSION}" ]; then
               echo "- Published: npm package and GitHub Release for v${VERSION}"
             fi
