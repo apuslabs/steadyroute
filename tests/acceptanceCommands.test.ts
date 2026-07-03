@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceStatus } from "../src/acceptanceCommands.js";
+import { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceInit, formatAcceptanceStatus, initAcceptanceRun } from "../src/acceptanceCommands.js";
 
 describe("acceptance commands", () => {
   const roots: string[] = [];
@@ -24,6 +24,52 @@ describe("acceptance commands", () => {
     expect(formatted).toContain("Mode: aggregate");
     expect(formatted).toContain("Gate status: evidence-incomplete");
     expect(formatted).toContain("note: This command only checks local evidence file presence.");
+  });
+
+  it("initializes a local evidence run manifest without proving acceptance", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-init-test-"));
+    roots.push(root);
+
+    const result = initAcceptanceRun({ root, run: "manual-smoke" });
+    const manifest = JSON.parse(fs.readFileSync(result.manifest_path, "utf8")) as {
+      run: string;
+      required_scenarios: string[];
+      optional_scenarios: string[];
+      notes: string[];
+    };
+    const formatted = formatAcceptanceInit(result);
+
+    expect(result).toMatchObject({
+      root,
+      run: "manual-smoke",
+      evidence_dir: path.join(root, "manual-smoke"),
+      manifest_path: path.join(root, "manual-smoke", "manifest.json"),
+      created: true
+    });
+    expect(manifest.run).toBe("manual-smoke");
+    expect(manifest.required_scenarios).toContain("SR-MVP-10");
+    expect(manifest.optional_scenarios).toEqual(["SR-MVP-05"]);
+    expect(manifest.notes.join(" ")).toContain("does not prove acceptance");
+    expect(formatted).toContain("Run: manual-smoke");
+    expect(formatAcceptanceInit(result, { printEnv: true })).toBe(`export SR_EVIDENCE_DIR='${path.join(root, "manual-smoke")}'`);
+  });
+
+  it("protects existing evidence runs unless force is set", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-init-force-test-"));
+    roots.push(root);
+    initAcceptanceRun({ root, run: "existing-run" });
+
+    expect(() => initAcceptanceRun({ root, run: "existing-run" })).toThrow(/already exists/);
+
+    const result = initAcceptanceRun({ root, run: "existing-run", force: true });
+    expect(result.created).toBe(false);
+  });
+
+  it("rejects unsafe evidence run names", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-init-invalid-test-"));
+    roots.push(root);
+
+    expect(() => initAcceptanceRun({ root, run: "../outside" })).toThrow(/Invalid acceptance run name/);
   });
 
   it("summarizes evidence files by acceptance scenario", () => {

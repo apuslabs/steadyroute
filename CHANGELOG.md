@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added `steadyroute acceptance init` to create local evidence run directories, manifests, and `SR_EVIDENCE_DIR` shell exports.
+
 ## 0.1.23 - 2026-07-03
 
 - Fixed release preparation so changelog `Unreleased` stays at the top and existing unreleased notes move into the version entry.

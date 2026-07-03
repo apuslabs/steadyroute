@@ -1,6 +1,32 @@
 import fs from "node:fs";
 import path from "node:path";
 
+export interface AcceptanceInitOptions {
+  root?: string;
+  run?: string;
+  force?: boolean;
+}
+
+export interface AcceptanceInitResult {
+  root: string;
+  run: string;
+  evidence_dir: string;
+  manifest_path: string;
+  created: boolean;
+  manifest: AcceptanceRunManifest;
+  shell_exports: string[];
+}
+
+export interface AcceptanceRunManifest {
+  schema_version: 1;
+  run: string;
+  created_at: string;
+  evidence_dir: string;
+  required_scenarios: string[];
+  optional_scenarios: string[];
+  notes: string[];
+}
+
 export interface AcceptanceStatusOptions {
   root?: string;
   run?: string;
@@ -157,6 +183,61 @@ const SCENARIOS: ScenarioRequirement[] = [
     reviewNotes: ["Confirm the response shape is Responses-compatible and explain distinguishes it from Chat Completions."]
   }
 ];
+
+export function initAcceptanceRun(options: AcceptanceInitOptions = {}): AcceptanceInitResult {
+  const root = path.resolve(options.root ?? ".steadyroute-acceptance");
+  const run = options.run?.trim() || defaultRunName(new Date());
+  if (!isSafeRunName(run)) throw new Error(`Invalid acceptance run name: ${run}`);
+  const evidenceDir = path.join(root, run);
+  const manifestPath = path.join(evidenceDir, "manifest.json");
+  const exists = fs.existsSync(evidenceDir);
+  if (exists && !options.force) {
+    throw new Error(`Acceptance evidence run already exists: ${evidenceDir}`);
+  }
+
+  fs.mkdirSync(evidenceDir, { recursive: true });
+  const manifest: AcceptanceRunManifest = {
+    schema_version: 1,
+    run,
+    created_at: new Date().toISOString(),
+    evidence_dir: evidenceDir,
+    required_scenarios: SCENARIOS.filter((scenario) => scenario.required).map((scenario) => scenario.id),
+    optional_scenarios: ["SR-MVP-05"],
+    notes: [
+      "Store scenario commands, client output, request ids, and steadyroute explain output in this directory.",
+      "This manifest does not prove acceptance; run steadyroute acceptance audit after evidence is captured."
+    ]
+  };
+  fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+
+  return {
+    root,
+    run,
+    evidence_dir: evidenceDir,
+    manifest_path: manifestPath,
+    created: !exists,
+    manifest,
+    shell_exports: [`export SR_EVIDENCE_DIR=${shellQuote(evidenceDir)}`]
+  };
+}
+
+export function formatAcceptanceInit(result: AcceptanceInitResult, options: { printEnv?: boolean } = {}): string {
+  if (options.printEnv) return result.shell_exports.join("\n");
+  return [
+    "SteadyRoute acceptance evidence run",
+    `Run: ${result.run}`,
+    `Evidence dir: ${result.evidence_dir}`,
+    `Manifest: ${result.manifest_path}`,
+    `Created: ${result.created}`,
+    "",
+    "Shell:",
+    ...result.shell_exports,
+    "",
+    "Next:",
+    "Run the MVP scenarios and save command output plus steadyroute explain output into this directory.",
+    `Then inspect it with: steadyroute acceptance audit --run ${result.run}`
+  ].join("\n");
+}
 
 export function buildAcceptanceStatus(options: AcceptanceStatusOptions = {}): AcceptanceStatusReport {
   const root = path.resolve(options.root ?? ".steadyroute-acceptance");
@@ -389,6 +470,23 @@ function latestRunDirectory(root: string): string | null {
 
 function isSafeRunName(run: string): boolean {
   return run !== "." && run !== ".." && !run.includes("/") && !run.includes("\\") && !path.isAbsolute(run);
+}
+
+function defaultRunName(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    date.getFullYear(),
+    pad(date.getMonth() + 1),
+    pad(date.getDate()),
+    "-",
+    pad(date.getHours()),
+    pad(date.getMinutes()),
+    pad(date.getSeconds())
+  ].join("");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
 }
 
 function scenarioStatus(scenario: ScenarioRequirement, files: string[]): AcceptanceScenarioStatus {

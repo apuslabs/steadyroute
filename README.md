@@ -123,6 +123,8 @@ steadyroute diagnostics export --output ./steadyroute-diagnostics.json
 Check local MVP acceptance evidence coverage without running providers:
 
 ```bash
+steadyroute acceptance init --run 2026-07-03-smoke
+eval "$(steadyroute acceptance init --run 2026-07-03-smoke --print-env --force)"
 steadyroute acceptance status
 steadyroute acceptance status --latest
 steadyroute acceptance status --run 2026-07-03-smoke
@@ -168,6 +170,8 @@ SteadyRoute records request traces locally so you can inspect how a route was se
 `steadyroute diagnostics export` writes a redacted JSON bundle with doctor output,
 provider status, key aliases, recent request metadata, trace ids, attempts, and
 usage evidence. Full request and response bodies are summarized by default.
+`steadyroute acceptance init` creates a local evidence run directory with a
+manifest and prints `SR_EVIDENCE_DIR` exports for scenario capture.
 `steadyroute acceptance status` scans local evidence files and reports which
 required MVP scenarios have evidence present; it does not mark the gate passed.
 By default it aggregates all files under `.steadyroute-acceptance`; use

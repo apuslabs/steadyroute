@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
-import { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceStatus } from "./acceptanceCommands.js";
+import { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceInit, formatAcceptanceStatus, initAcceptanceRun } from "./acceptanceCommands.js";
 import { loadConfig } from "./config.js";
 import { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 import { exportDiagnostics } from "./diagnostics.js";
@@ -245,6 +245,19 @@ diagnostics
   });
 
 const acceptance = program.command("acceptance").description("Inspect local MVP acceptance evidence");
+acceptance
+  .command("init")
+  .description("Create a local acceptance evidence run directory and manifest")
+  .option("--root <path>", "Acceptance evidence root", ".steadyroute-acceptance")
+  .option("--run <name>", "Run directory name; defaults to a local timestamp")
+  .option("--force", "Overwrite the run manifest if the run directory already exists")
+  .option("--print-env", "Print only shell exports for the new run")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const result = initAcceptanceRun({ root: options.root, run: options.run, force: Boolean(options.force) });
+    console.log(options.json ? JSON.stringify(result, null, 2) : formatAcceptanceInit(result, { printEnv: Boolean(options.printEnv) }));
+  });
+
 acceptance
   .command("status")
   .description("Summarize local acceptance evidence file presence without running providers")
