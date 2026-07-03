@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { buildAcceptanceStatus, formatAcceptanceStatus } from "../src/acceptanceCommands.js";
+import { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceStatus } from "../src/acceptanceCommands.js";
 
 describe("acceptance commands", () => {
   const roots: string[] = [];
@@ -96,7 +96,8 @@ describe("acceptance commands", () => {
       explain_files: 1,
       request_ids: ["req_responses_signal"],
       endpoints: ["/v1/responses"],
-      providers: ["openrouter"]
+      providers: ["openrouter"],
+      usage_or_quota: false
     });
     expect(formatted).toContain("signals: explain_files=1 request_ids=1 endpoints=/v1/responses providers=openrouter");
     expect(report.summary.gate_status).toBe("evidence-incomplete");
@@ -168,6 +169,101 @@ describe("acceptance commands", () => {
     });
     expect(report.notes).toContain("Ignored invalid run name: ../safe-run");
     expect(report.scenarios.find((scenario) => scenario.id === "SR-MVP-00")).toMatchObject({ status: "missing" });
+  });
+
+  it("audits required signals without treating file presence as final acceptance", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-audit-test-"));
+    roots.push(root);
+    writeEvidence(root, "run-1/01-chat-client.txt", "x-steadyroute-request-id: req_chat\n");
+    writeEvidence(root, "run-1/01-explain.txt", [
+      "SteadyRoute request req_chat",
+      "Status: success (HTTP 200)",
+      "Endpoint: /v1/chat/completions",
+      "Final provider/model: openrouter / openrouter/free",
+      "",
+      "Attempts:",
+      "- #1 openrouter/openrouter/free key=default status=success upstream=200 latency=800ms",
+      "  usage: input=4 (provider) output=6 (provider) total=10 (provider)"
+    ].join("\n"));
+    writeEvidence(root, "run-1/02-stream.sse", "data: first\n\ndata: second\n\n");
+    writeEvidence(root, "run-1/02-explain.txt", [
+      "SteadyRoute request req_stream",
+      "Status: success (HTTP 200)",
+      "Endpoint: /v1/chat/completions",
+      "Final provider/model: kilo / openrouter/free",
+      "",
+      "Stream metadata:",
+      "- stream: true",
+      "- chunk_count: 3",
+      "- first_chunk_at: 2026-07-03T00:00:00.000Z",
+      "- final_chunk_at: 2026-07-03T00:00:01.000Z",
+      "- done_seen: true",
+      "- finish_reason: stop"
+    ].join("\n"));
+    writeEvidence(root, "run-1/06-tool-body.json", "{}");
+    writeEvidence(root, "run-1/06-tool-explain.txt", [
+      "SteadyRoute request req_tool",
+      "Status: success (HTTP 200)",
+      "Endpoint: /v1/responses",
+      "Final provider/model: openrouter / qwen/qwen3-coder:free",
+      "",
+      "Request shape:",
+      "- stream: false",
+      "- tools_present: true",
+      "- structured_output: none",
+      "- tool_names: report_package"
+    ].join("\n"));
+
+    const report = buildAcceptanceAudit({ root, run: "run-1" });
+    const formatted = formatAcceptanceAudit(report);
+    const chat = report.scenarios.find((scenario) => scenario.id === "SR-MVP-01");
+    const stream = report.scenarios.find((scenario) => scenario.id === "SR-MVP-02");
+    const tool = report.scenarios.find((scenario) => scenario.id === "SR-MVP-06");
+    const baseline = report.scenarios.find((scenario) => scenario.id === "SR-MVP-00");
+
+    expect(chat).toMatchObject({ audit_status: "pass-ready", missing_signals: [] });
+    expect(stream).toMatchObject({ audit_status: "pass-ready", missing_signals: [] });
+    expect(stream?.signals.stream_metadata).toBe(true);
+    expect(tool).toMatchObject({ audit_status: "pass-ready", missing_signals: [] });
+    expect(tool?.signals.tool_or_structured_shape).toBe(true);
+    expect(baseline).toMatchObject({ audit_status: "missing-evidence" });
+    expect(report.summary.audit_status).toBe("audit-incomplete");
+    expect(report.summary.review_required).toContain("SR-MVP-00");
+    expect(formatted).toContain("SR-MVP-01: pass-ready");
+    expect(formatted).toContain("SR-MVP-00: missing-evidence");
+    expect(formatted).toContain("note: Audit status is based on machine-readable evidence signals only;");
+  });
+
+  it("requires four distinct provider signals for the provider matrix scenario", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-provider-audit-test-"));
+    roots.push(root);
+    for (const provider of ["openrouter", "kilo", "groq"]) {
+      writeEvidence(root, `run-1/04-${provider}-explain.txt`, [
+        `SteadyRoute request req_${provider}`,
+        "Status: success (HTTP 200)",
+        "Endpoint: /v1/chat/completions",
+        `Final provider/model: ${provider} / model`
+      ].join("\n"));
+    }
+
+    const threeProviderReport = buildAcceptanceAudit({ root, run: "run-1" });
+    expect(threeProviderReport.scenarios.find((scenario) => scenario.id === "SR-MVP-04")).toMatchObject({
+      audit_status: "review-required",
+      missing_signals: ["four_providers"]
+    });
+
+    writeEvidence(root, "run-1/04-gemini-explain.txt", [
+      "SteadyRoute request req_gemini",
+      "Status: success (HTTP 200)",
+      "Endpoint: /v1/chat/completions",
+      "Final provider/model: gemini / gemini-2.5-flash"
+    ].join("\n"));
+
+    const fourProviderReport = buildAcceptanceAudit({ root, run: "run-1" });
+    expect(fourProviderReport.scenarios.find((scenario) => scenario.id === "SR-MVP-04")).toMatchObject({
+      audit_status: "pass-ready",
+      missing_signals: []
+    });
   });
 });
 

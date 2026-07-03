@@ -16,6 +16,13 @@ export interface AcceptanceScenarioStatus {
   signals: AcceptanceEvidenceSignals;
 }
 
+export interface AcceptanceScenarioAudit extends AcceptanceScenarioStatus {
+  audit_status: "pass-ready" | "review-required" | "missing-evidence";
+  required_signals: string[];
+  missing_signals: string[];
+  review_notes: string[];
+}
+
 export interface AcceptanceEvidenceSignals {
   explain_files: number;
   request_ids: string[];
@@ -25,6 +32,9 @@ export interface AcceptanceEvidenceSignals {
   error_classes: string[];
   doctor_files: number;
   doctor_local_paths: boolean;
+  stream_metadata: boolean;
+  usage_or_quota: boolean;
+  tool_or_structured_shape: boolean;
 }
 
 export interface AcceptanceStatusReport {
@@ -41,6 +51,15 @@ export interface AcceptanceStatusReport {
   notes: string[];
 }
 
+export interface AcceptanceAuditReport extends Omit<AcceptanceStatusReport, "scenarios" | "summary"> {
+  summary: AcceptanceStatusReport["summary"] & {
+    pass_ready_required: number;
+    review_required: string[];
+    audit_status: "audit-incomplete" | "ready-for-human-review";
+  };
+  scenarios: AcceptanceScenarioAudit[];
+}
+
 export interface AcceptanceEvidenceSelection {
   mode: "aggregate" | "run" | "latest";
   run: string | null;
@@ -53,22 +72,90 @@ interface ScenarioRequirement {
   id: string;
   required: boolean;
   patterns: EvidencePattern[];
+  requiredSignals: string[];
+  reviewNotes: string[];
 }
 
 type EvidencePattern = { scope: "path" | "basename"; pattern: RegExp };
 
 const SCENARIOS: ScenarioRequirement[] = [
-  { id: "SR-MVP-P0", required: true, patterns: [pathPattern(/docs\/providers\/.*provider-coverage-matrix\.md$/)] },
-  { id: "SR-MVP-00", required: true, patterns: [namePattern(/^00-doctor\.txt$/), namePattern(/^00-models\.txt$/), namePattern(/^00-health\.json$/), namePattern(/^00-v1-models\.json$/)] },
-  { id: "SR-MVP-01", required: true, patterns: [namePattern(/^01-chat-.*\.(txt|json)$/), namePattern(/^01-.*explain.*\.txt$/)] },
-  { id: "SR-MVP-02", required: true, patterns: [namePattern(/^02-stream.*\.(sse|txt)$/), namePattern(/^02-.*explain.*\.txt$/)] },
-  { id: "SR-MVP-03", required: true, patterns: [namePattern(/^03-codex-responses.*\.txt$/), namePattern(/^03-explain.*\.txt$/)] },
-  { id: "SR-MVP-04", required: true, patterns: [namePattern(/^04-.*-explain\.txt$/)] },
-  { id: "SR-MVP-06", required: true, patterns: [namePattern(/^06-.*body\.json$/), namePattern(/^06-.*explain.*\.txt$/)] },
-  { id: "SR-MVP-07", required: true, patterns: [namePattern(/^07-.*explain.*\.txt$/)] },
-  { id: "SR-MVP-08", required: true, patterns: [namePattern(/^08-doctor\.txt$/), namePattern(/^08-.*explain.*\.txt$/)] },
-  { id: "SR-MVP-09", required: true, patterns: [namePattern(/^09-.*after.*\.txt$/), namePattern(/^09-.*explain.*\.txt$/)] },
-  { id: "SR-MVP-10", required: true, patterns: [namePattern(/^10-responses-body\.json$/), namePattern(/^10-.*explain.*\.txt$/)] }
+  {
+    id: "SR-MVP-P0",
+    required: true,
+    patterns: [pathPattern(/docs\/providers\/.*provider-coverage-matrix\.md$/)],
+    requiredSignals: [],
+    reviewNotes: ["Review the provider matrix manually for 9router, FreeLLMAPI, OmniRoute, public docs, and explicit unknown fields."]
+  },
+  {
+    id: "SR-MVP-00",
+    required: true,
+    patterns: [namePattern(/^00-doctor\.txt$/), namePattern(/^00-models\.txt$/), namePattern(/^00-health\.json$/), namePattern(/^00-v1-models\.json$/)],
+    requiredSignals: ["doctor_local_paths"],
+    reviewNotes: ["Confirm doctor output redacts secrets and shows localhost-only bind, config, DB, ledger, and key-store paths."]
+  },
+  {
+    id: "SR-MVP-01",
+    required: true,
+    patterns: [namePattern(/^01-chat-.*\.(txt|json)$/), namePattern(/^01-.*explain.*\.txt$/)],
+    requiredSignals: ["request_id", "endpoint:/v1/chat/completions", "provider", "success_status"],
+    reviewNotes: ["Confirm the client request went through SteadyRoute and did not call a provider directly."]
+  },
+  {
+    id: "SR-MVP-02",
+    required: true,
+    patterns: [namePattern(/^02-stream.*\.(sse|txt)$/), namePattern(/^02-.*explain.*\.txt$/)],
+    requiredSignals: ["request_id", "provider", "stream_metadata"],
+    reviewNotes: ["Confirm the saved SSE showed incremental output and explain includes chunk/timing/final-text evidence."]
+  },
+  {
+    id: "SR-MVP-03",
+    required: true,
+    patterns: [namePattern(/^03-codex-responses.*\.txt$/), namePattern(/^03-explain.*\.txt$/)],
+    requiredSignals: ["request_id", "endpoint:/v1/responses", "provider", "success_status"],
+    reviewNotes: ["Confirm Codex modified a real dogfood project and validation commands ran through SteadyRoute."]
+  },
+  {
+    id: "SR-MVP-04",
+    required: true,
+    patterns: [namePattern(/^04-.*-explain\.txt$/)],
+    requiredSignals: ["four_providers", "success_status"],
+    reviewNotes: ["Confirm the four providers are distinct real upstream providers and provider constraints were honored."]
+  },
+  {
+    id: "SR-MVP-06",
+    required: true,
+    patterns: [namePattern(/^06-.*body\.json$/), namePattern(/^06-.*explain.*\.txt$/)],
+    requiredSignals: ["request_id", "provider", "tool_or_structured_shape"],
+    reviewNotes: ["Confirm the request used a real tool-call or structured-output shape through SteadyRoute."]
+  },
+  {
+    id: "SR-MVP-07",
+    required: true,
+    patterns: [namePattern(/^07-.*explain.*\.txt$/)],
+    requiredSignals: ["request_id", "error_class"],
+    reviewNotes: ["Confirm the controlled failure setup is visible and fallback behavior matches the error taxonomy."]
+  },
+  {
+    id: "SR-MVP-08",
+    required: true,
+    patterns: [namePattern(/^08-doctor\.txt$/), namePattern(/^08-.*explain.*\.txt$/)],
+    requiredSignals: ["request_id", "usage_or_quota", "doctor_local_paths"],
+    reviewNotes: ["Confirm usage and quota labels are provider-reported, observed, estimated, or unknown, never guessed."]
+  },
+  {
+    id: "SR-MVP-09",
+    required: true,
+    patterns: [namePattern(/^09-.*after.*\.txt$/), namePattern(/^09-.*explain.*\.txt$/)],
+    requiredSignals: ["request_id", "doctor_local_paths"],
+    reviewNotes: ["Confirm explain works after restart and local state paths are unchanged."]
+  },
+  {
+    id: "SR-MVP-10",
+    required: true,
+    patterns: [namePattern(/^10-responses-body\.json$/), namePattern(/^10-.*explain.*\.txt$/)],
+    requiredSignals: ["request_id", "endpoint:/v1/responses", "provider", "success_status"],
+    reviewNotes: ["Confirm the response shape is Responses-compatible and explain distinguishes it from Chat Completions."]
+  }
 ];
 
 export function buildAcceptanceStatus(options: AcceptanceStatusOptions = {}): AcceptanceStatusReport {
@@ -129,6 +216,89 @@ export function formatAcceptanceStatus(report: AcceptanceStatusReport): string {
   lines.push("");
   for (const note of report.notes) lines.push(`note: ${note}`);
   return lines.join("\n");
+}
+
+export function buildAcceptanceAudit(options: AcceptanceStatusOptions = {}): AcceptanceAuditReport {
+  const status = buildAcceptanceStatus(options);
+  const scenarios = status.scenarios.map((scenario) => {
+    const requirement = SCENARIOS.find((candidate) => candidate.id === scenario.id);
+    const requiredSignals = requirement?.requiredSignals ?? [];
+    const missingSignals = requiredSignals.filter((signal) => !hasAuditSignal(signal, scenario.signals));
+    const auditStatus: AcceptanceScenarioAudit["audit_status"] = scenario.status === "missing"
+      ? "missing-evidence"
+      : missingSignals.length === 0
+        ? "pass-ready"
+        : "review-required";
+    return {
+      ...scenario,
+      audit_status: auditStatus,
+      required_signals: requiredSignals,
+      missing_signals: missingSignals,
+      review_notes: requirement?.reviewNotes ?? []
+    };
+  });
+  const requiredScenarios = scenarios.filter((scenario) => scenario.required);
+  const reviewRequired = requiredScenarios
+    .filter((scenario) => scenario.audit_status !== "pass-ready")
+    .map((scenario) => scenario.id);
+
+  return {
+    ...status,
+    summary: {
+      ...status.summary,
+      pass_ready_required: requiredScenarios.length - reviewRequired.length,
+      review_required: reviewRequired,
+      audit_status: reviewRequired.length === 0 ? "ready-for-human-review" : "audit-incomplete"
+    },
+    scenarios,
+    notes: [
+      ...status.notes,
+      "Audit status is based on machine-readable evidence signals only; human review remains required for final MVP acceptance."
+    ]
+  };
+}
+
+export function formatAcceptanceAudit(report: AcceptanceAuditReport): string {
+  const lines = [
+    "SteadyRoute acceptance evidence audit",
+    `Evidence root: ${report.root}`,
+    `Mode: ${report.selection.mode}`,
+    `Selected root: ${report.selection.evidence_root}`,
+    `Required evidence: ${report.summary.required_with_evidence}/${report.summary.required_total}`,
+    `Pass-ready required scenarios: ${report.summary.pass_ready_required}/${report.summary.required_total}`,
+    `Audit status: ${report.summary.audit_status}`,
+    ""
+  ];
+  if (report.selection.run) lines.splice(3, 0, `Run: ${report.selection.run}`);
+  if (report.selection.available_runs.length > 0) {
+    lines.push(`Available runs: ${report.selection.available_runs.join(", ")}`);
+    lines.push("");
+  }
+  for (const scenario of report.scenarios) {
+    lines.push(`${scenario.id}: ${scenario.audit_status}`);
+    const signalSummary = formatSignals(scenario.signals);
+    if (signalSummary) lines.push(`  signals: ${signalSummary}`);
+    if (scenario.missing_patterns.length > 0) lines.push(`  missing evidence: ${scenario.missing_patterns.join(", ")}`);
+    if (scenario.missing_signals.length > 0) lines.push(`  missing signals: ${scenario.missing_signals.join(", ")}`);
+    for (const note of scenario.review_notes) lines.push(`  review: ${note}`);
+  }
+  lines.push("");
+  for (const note of report.notes) lines.push(`note: ${note}`);
+  return lines.join("\n");
+}
+
+function hasAuditSignal(signal: string, signals: AcceptanceEvidenceSignals): boolean {
+  if (signal === "request_id") return signals.request_ids.length > 0;
+  if (signal === "provider") return signals.providers.length > 0;
+  if (signal === "success_status") return signals.final_statuses.some((status) => /success/i.test(status));
+  if (signal === "error_class") return signals.error_classes.length > 0;
+  if (signal === "doctor_local_paths") return signals.doctor_local_paths;
+  if (signal === "stream_metadata") return signals.stream_metadata;
+  if (signal === "usage_or_quota") return signals.usage_or_quota;
+  if (signal === "tool_or_structured_shape") return signals.tool_or_structured_shape;
+  if (signal === "four_providers") return signals.providers.length >= 4;
+  if (signal.startsWith("endpoint:")) return signals.endpoints.includes(signal.slice("endpoint:".length));
+  return false;
 }
 
 function selectEvidenceRoot(root: string, options: AcceptanceStatusOptions): AcceptanceEvidenceSelection {
@@ -251,6 +421,9 @@ function collectSignals(files: string[]): AcceptanceEvidenceSignals {
   let explainFiles = 0;
   let doctorFiles = 0;
   let doctorLocalPaths = false;
+  let streamMetadata = false;
+  let usageOrQuota = false;
+  let toolOrStructuredShape = false;
 
   for (const file of files) {
     const normalized = normalizePath(file);
@@ -263,6 +436,10 @@ function collectSignals(files: string[]): AcceptanceEvidenceSignals {
       addMatch(text, /^Status: (.+)$/m, finalStatuses);
       addMatch(text, /^Final provider\/model: ([^/]+) \//m, providers);
       for (const match of text.matchAll(/error: ([a-z_]+)/g)) errorClasses.add(match[1]);
+      if (/^Stream metadata:$/m.test(text) && /^- chunk_count: [1-9][0-9]*/m.test(text)) streamMetadata = true;
+      if (/^\s*usage: .*\((provider|observed|estimated|unknown)\)/m.test(text) || /^\s*quota: /m.test(text)) usageOrQuota = true;
+      if (/^- tools_present: true$/m.test(text) || /^- tool_names: /m.test(text)) toolOrStructuredShape = true;
+      if (/^- structured_output: (?!none$).+/m.test(text)) toolOrStructuredShape = true;
     }
     if (/doctor.*\.txt$/.test(normalized)) {
       doctorFiles += 1;
@@ -280,7 +457,10 @@ function collectSignals(files: string[]): AcceptanceEvidenceSignals {
     final_statuses: [...finalStatuses].sort(),
     error_classes: [...errorClasses].sort(),
     doctor_files: doctorFiles,
-    doctor_local_paths: doctorLocalPaths
+    doctor_local_paths: doctorLocalPaths,
+    stream_metadata: streamMetadata,
+    usage_or_quota: usageOrQuota,
+    tool_or_structured_shape: toolOrStructuredShape
   };
 }
 
@@ -293,6 +473,9 @@ function formatSignals(signals: AcceptanceEvidenceSignals): string {
   if (signals.error_classes.length > 0) parts.push(`errors=${signals.error_classes.join("|")}`);
   if (signals.doctor_files > 0) parts.push(`doctor_files=${signals.doctor_files}`);
   if (signals.doctor_local_paths) parts.push("doctor_local_paths=true");
+  if (signals.stream_metadata) parts.push("stream_metadata=true");
+  if (signals.usage_or_quota) parts.push("usage_or_quota=true");
+  if (signals.tool_or_structured_shape) parts.push("tool_or_structured_shape=true");
   return parts.join(" ");
 }
 

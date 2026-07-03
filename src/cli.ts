@@ -2,7 +2,7 @@
 import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
-import { buildAcceptanceStatus, formatAcceptanceStatus } from "./acceptanceCommands.js";
+import { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceStatus } from "./acceptanceCommands.js";
 import { loadConfig } from "./config.js";
 import { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 import { exportDiagnostics } from "./diagnostics.js";
@@ -255,6 +255,18 @@ acceptance
   .action((options) => {
     const report = buildAcceptanceStatus({ root: options.root, run: options.run, latest: Boolean(options.latest) });
     console.log(options.json ? JSON.stringify(report, null, 2) : formatAcceptanceStatus(report));
+  });
+
+acceptance
+  .command("audit")
+  .description("Audit local acceptance evidence signals without running providers")
+  .option("--root <path>", "Acceptance evidence root", ".steadyroute-acceptance")
+  .option("--run <name>", "Restrict evidence scan to one run directory under the evidence root")
+  .option("--latest", "Restrict evidence scan to the newest run directory under the evidence root")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const report = buildAcceptanceAudit({ root: options.root, run: options.run, latest: Boolean(options.latest) });
+    console.log(options.json ? JSON.stringify(report, null, 2) : formatAcceptanceAudit(report));
   });
 
 const integrations = program.command("integrations").description("Configure local client integrations");

@@ -1,4 +1,4 @@
-export { buildAcceptanceStatus, formatAcceptanceStatus } from "./acceptanceCommands.js";
+export { buildAcceptanceAudit, buildAcceptanceStatus, formatAcceptanceAudit, formatAcceptanceStatus } from "./acceptanceCommands.js";
 export { loadConfig } from "./config.js";
 export { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 export { exportDiagnostics } from "./diagnostics.js";

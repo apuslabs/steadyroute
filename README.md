@@ -126,6 +126,7 @@ Check local MVP acceptance evidence coverage without running providers:
 steadyroute acceptance status
 steadyroute acceptance status --latest
 steadyroute acceptance status --run 2026-07-03-smoke
+steadyroute acceptance audit --latest
 steadyroute acceptance status --json
 ```
 
@@ -172,6 +173,11 @@ required MVP scenarios have evidence present; it does not mark the gate passed.
 By default it aggregates all files under `.steadyroute-acceptance`; use
 `--latest` or `--run <name>` when checking whether a single acceptance run is
 complete.
+`steadyroute acceptance audit` applies the same file scan plus machine-readable
+signal checks for request ids, endpoints, providers, streaming metadata, usage
+labels, and tool or structured-output shapes. It still does not mark final MVP
+acceptance passed; human review of real provider and dogfood evidence remains
+required.
 
 ## Default Free Routes
 
