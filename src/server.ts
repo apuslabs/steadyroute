@@ -1,9 +1,9 @@
 import Fastify from "fastify";
 import type Database from "better-sqlite3";
-import { nanoid } from "nanoid";
 import { loadConfig } from "./config.js";
 import { getProviderKey } from "./db.js";
 import { PROVIDERS, resolveProviderEnvKey } from "./providers.js";
+import { createRequestId } from "./requestIds.js";
 import { routeRequest } from "./router.js";
 
 export interface ServerOptions {
@@ -50,7 +50,7 @@ export function buildServer(options: ServerOptions) {
   }));
 
   app.post("/v1/chat/completions", async (request, reply) => {
-    const requestId = nanoid(18);
+    const requestId = createRequestId();
     const result = await routeRequest({
       requestId,
       db: options.db,
@@ -66,7 +66,7 @@ export function buildServer(options: ServerOptions) {
   });
 
   app.post("/v1/responses", async (request, reply) => {
-    const requestId = nanoid(18);
+    const requestId = createRequestId();
     const result = await routeRequest({
       requestId,
       db: options.db,

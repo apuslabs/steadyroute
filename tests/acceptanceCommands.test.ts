@@ -400,12 +400,23 @@ describe("acceptance commands", () => {
     });
     expect(chat?.request_ids.map((hit) => hit.request_id)).toEqual(["req_chat_body", "req_chat_header", "req_chat_nested"]);
     expect(codex?.request_ids.map((hit) => hit.request_id)).toEqual(["req_codex_explain", "req_codex_log"]);
-    expect(chat?.request_ids[0].explain_command).toContain("steadyroute explain 'req_chat_body'");
+    expect(chat?.request_ids[0].explain_command).toContain("steadyroute explain -- 'req_chat_body'");
     expect(chat?.request_ids[0].explain_command).toContain("$SR_EVIDENCE_DIR/01-explain-req_chat_body.txt");
     expect(formatted).toContain("SteadyRoute acceptance request ids");
     expect(formatted).toContain("SR-MVP-01: 3 request ids");
-    expect(formatted).toContain("explain: steadyroute explain 'req_chat_body'");
+    expect(formatted).toContain("explain: steadyroute explain -- 'req_chat_body'");
     expect(formatted).toContain("note: This command only extracts request ids from local evidence files.");
+  });
+
+  it("prints explain commands that work for request ids starting with a dash", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "steadyroute-acceptance-dash-id-test-"));
+    roots.push(root);
+    writeEvidence(root, "run-1/03-codex-responses.txt", "request_id=-dash_id\n");
+
+    const report = buildAcceptanceIds({ root, run: "run-1" });
+    const codex = report.scenarios.find((scenario) => scenario.id === "SR-MVP-03");
+
+    expect(codex?.request_ids[0]?.explain_command).toContain("steadyroute explain -- '-dash_id'");
   });
 
   it("builds a passing scriptable acceptance check when every required scenario is pass-ready", () => {

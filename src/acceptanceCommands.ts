@@ -344,7 +344,7 @@ capture_baseline() {
 explain_request() {
   local request_id="\${1:?request id required}"
   local output="\${2:?output file required}"
-  steadyroute explain "$request_id" | tee "$SR_EVIDENCE_DIR/$output"
+  steadyroute explain -- "$request_id" | tee "$SR_EVIDENCE_DIR/$output"
 }
 
 list_request_ids() {
@@ -370,7 +370,7 @@ let count = 0;
 for (const scenario of report.scenarios) {
   const prefix = scenario.id.replace("SR-MVP-", "");
   for (const hit of scenario.request_ids) {
-    const out = spawnSync("steadyroute", ["explain", hit.request_id], { encoding: "utf8" });
+    const out = spawnSync("steadyroute", ["explain", "--", hit.request_id], { encoding: "utf8" });
     if (out.status !== 0) {
       process.stderr.write(out.stderr || out.stdout);
       process.exit(out.status || 1);
@@ -986,7 +986,7 @@ function isLikelyRequestId(id: string): boolean {
 function explainCommandFor(scenarioId: string, requestId: string): string {
   const prefix = scenarioId.replace("SR-MVP-", "");
   const safeId = shellQuote(requestId);
-  return `steadyroute explain ${safeId} | tee "$SR_EVIDENCE_DIR/${prefix}-explain-${requestId}.txt"`;
+  return `steadyroute explain -- ${safeId} | tee "$SR_EVIDENCE_DIR/${prefix}-explain-${requestId}.txt"`;
 }
 
 function selectEvidenceRoot(root: string, options: AcceptanceStatusOptions): AcceptanceEvidenceSelection {
