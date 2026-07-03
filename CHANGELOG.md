@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.31 - 2026-07-03
+
 - Made the manual release workflow accept existing `Unreleased` changelog notes without requiring duplicate dispatch notes.
 
 ## 0.1.30 - 2026-07-03
