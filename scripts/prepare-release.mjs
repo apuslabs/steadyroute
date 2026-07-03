@@ -89,6 +89,18 @@ function normalizeNotes(rawNotes) {
   return notes;
 }
 
+function updateChangelog(changelog, version, notes) {
+  const marker = "# Changelog";
+  const body = changelog.startsWith(marker) ? changelog.slice(marker.length).replace(/^\s*/, "") : changelog.trimStart();
+  const sections = body.split(/(?=^## )/m).filter((section) => section.trim());
+  const unreleasedIndex = sections.findIndex((section) => /^## Unreleased\b/m.test(section));
+  const unreleased = unreleasedIndex >= 0 ? sections.splice(unreleasedIndex, 1)[0] : "## Unreleased\n\n";
+  const unreleasedBody = unreleased.replace(/^## Unreleased[^\n]*\n?/, "").trim();
+  const combinedNotes = [unreleasedBody, notes].filter(Boolean).join("\n");
+  const entry = `## ${version} - ${shanghaiDate()}\n\n${combinedNotes}\n\n`;
+  return `${marker}\n\n## Unreleased\n\n${entry}${sections.join("").replace(/^\s*/, "")}`;
+}
+
 const args = parseArgs(process.argv.slice(2));
 const root = path.resolve(args.root);
 const pkgPath = path.join(root, "package.json");
@@ -119,12 +131,7 @@ if (new RegExp(`^## ${version} - `, "m").test(changelog)) {
   fail(`CHANGELOG.md already contains a ${version} entry`);
 }
 
-const entry = `## ${version} - ${shanghaiDate()}\n\n${notes}\n\n`;
-const marker = "# Changelog\n\n";
-const nextChangelog = changelog.startsWith(marker)
-  ? changelog.replace(marker, `${marker}${entry}`)
-  : `${marker}${entry}${changelog}`;
-fs.writeFileSync(changelogPath, nextChangelog);
+fs.writeFileSync(changelogPath, updateChangelog(changelog, version, notes));
 
 fs.writeFileSync(path.resolve(root, args.versionFile), `${version}\n`);
 if (args.githubOutput) fs.appendFileSync(path.resolve(args.githubOutput), `version=${version}\n`);

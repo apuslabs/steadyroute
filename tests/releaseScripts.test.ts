@@ -20,7 +20,7 @@ function makeFixture() {
     path.join(root, "package-lock.json"),
     `${JSON.stringify({ name: "steadyroute", version: "0.1.20", packages: { "": { version: "0.1.20" } } }, null, 2)}\n`
   );
-  fs.writeFileSync(path.join(root, "CHANGELOG.md"), "# Changelog\n\n## 0.1.20 - 2026-07-03\n\n- Previous release.\n");
+  fs.writeFileSync(path.join(root, "CHANGELOG.md"), "# Changelog\n\n## Unreleased\n\n## 0.1.20 - 2026-07-03\n\n- Previous release.\n");
   return root;
 }
 
@@ -58,7 +58,42 @@ describe("prepare-release script", () => {
     expect(fs.readFileSync(path.join(root, ".release-version"), "utf8")).toBe("0.1.21\n");
     expect(fs.readFileSync(outputPath, "utf8")).toBe("version=0.1.21\n");
     expect(changelog).toContain("## 0.1.21 - ");
+    expect(changelog.indexOf("## Unreleased")).toBeLessThan(changelog.indexOf("## 0.1.21 - "));
     expect(changelog.indexOf("## 0.1.21 - ")).toBeLessThan(changelog.indexOf("## 0.1.20 - "));
     expect(changelog).toContain("- Add release workflow automation\n- Validate release dry-runs");
+  });
+
+  it("moves existing unreleased notes into the release entry without duplicating the section", () => {
+    const root = makeFixture();
+    fs.writeFileSync(path.join(root, "CHANGELOG.md"), [
+      "# Changelog",
+      "",
+      "## 0.1.20 - 2026-07-03",
+      "",
+      "- Previous release.",
+      "",
+      "## Unreleased",
+      "",
+      "- Add acceptance audit.",
+      ""
+    ].join("\n"));
+
+    execFileSync(process.execPath, [
+      scriptPath,
+      "--root",
+      root,
+      "--version",
+      "0.1.21",
+      "--notes",
+      "Publish audit command."
+    ]);
+
+    const changelog = fs.readFileSync(path.join(root, "CHANGELOG.md"), "utf8");
+    expect(changelog.match(/^## Unreleased$/gm)).toHaveLength(1);
+    expect(changelog.indexOf("## Unreleased")).toBeLessThan(changelog.indexOf("## 0.1.21 - "));
+    expect(changelog.indexOf("## 0.1.21 - ")).toBeLessThan(changelog.indexOf("## 0.1.20 - "));
+    expect(changelog).toContain("- Add acceptance audit.\n- Publish audit command.");
+    const unreleasedBlock = changelog.slice(changelog.indexOf("## Unreleased"), changelog.indexOf("## 0.1.21 - "));
+    expect(unreleasedBlock).not.toContain("Add acceptance audit");
   });
 });
