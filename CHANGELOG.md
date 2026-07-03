@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.18 - 2026-07-03
+
+- Added `steadyroute acceptance status` to summarize local MVP acceptance evidence coverage without running providers.
+
 ## 0.1.17 - 2026-07-03
 
 - Added provider health visibility for active cooldowns and recent failed attempts in `steadyroute doctor` and `steadyroute providers status`.

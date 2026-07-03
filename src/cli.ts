@@ -2,6 +2,7 @@
 import { createRequire } from "node:module";
 import process from "node:process";
 import { Command } from "commander";
+import { buildAcceptanceStatus, formatAcceptanceStatus } from "./acceptanceCommands.js";
 import { loadConfig } from "./config.js";
 import { configPathRows, configShowRows, formatConfigPaths, formatConfigShow } from "./configCommands.js";
 import { exportDiagnostics } from "./diagnostics.js";
@@ -241,6 +242,17 @@ diagnostics
       probe: Boolean(options.probe)
     });
     console.log(`Exported diagnostics to ${output}`);
+  });
+
+const acceptance = program.command("acceptance").description("Inspect local MVP acceptance evidence");
+acceptance
+  .command("status")
+  .description("Summarize local acceptance evidence file presence without running providers")
+  .option("--root <path>", "Acceptance evidence root", ".steadyroute-acceptance")
+  .option("--json", "Emit JSON")
+  .action((options) => {
+    const report = buildAcceptanceStatus({ root: options.root });
+    console.log(options.json ? JSON.stringify(report, null, 2) : formatAcceptanceStatus(report));
   });
 
 const integrations = program.command("integrations").description("Configure local client integrations");

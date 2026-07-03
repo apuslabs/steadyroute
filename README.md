@@ -120,6 +120,13 @@ Export redacted local diagnostics when sharing evidence:
 steadyroute diagnostics export --output ./steadyroute-diagnostics.json
 ```
 
+Check local MVP acceptance evidence coverage without running providers:
+
+```bash
+steadyroute acceptance status
+steadyroute acceptance status --json
+```
+
 Add an optional provider key only when you want keyed providers:
 
 ```bash
@@ -158,6 +165,8 @@ SteadyRoute records request traces locally so you can inspect how a route was se
 `steadyroute diagnostics export` writes a redacted JSON bundle with doctor output,
 provider status, key aliases, recent request metadata, trace ids, attempts, and
 usage evidence. Full request and response bodies are summarized by default.
+`steadyroute acceptance status` scans local evidence files and reports which
+required MVP scenarios have evidence present; it does not mark the gate passed.
 
 ## Default Free Routes
 
