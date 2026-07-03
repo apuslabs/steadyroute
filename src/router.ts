@@ -1,0 +1,555 @@
+import crypto from "node:crypto";
+import type Database from "better-sqlite3";
+import { callProvider, streamProvider } from "./adapters.js";
+import { createRequest, finalizeRequest, getActiveCooldown, getProviderKey, recordAttempt, setCooldown } from "./db.js";
+import { behaviorFor, clientStatusFor, safeExcerpt, SteadyRouteError } from "./errors.js";
+import { PROVIDERS, resolveProviderEnvKey } from "./providers.js";
+import { chatToResponsesResponse, promptTextFromChat, responsesToChat } from "./protocol.js";
+import { unknownUsage } from "./usage.js";
+import type { ChatRequestBody, ErrorClass, KeyMaterial, ProviderDefinition, ProviderModel, RouteCandidate, RouteHeaders } from "./types.js";
+
+export interface RouteRequestInput {
+  requestId: string;
+  db: Database.Database;
+  endpoint: "/v1/chat/completions" | "/v1/responses";
+  method: string;
+  body: Record<string, unknown>;
+  headers: Record<string, string | string[] | undefined>;
+  traceFullBodies: boolean;
+  providerOrder: string[];
+}
+
+export interface RouteRequestResult {
+  response: Response;
+  requestId: string;
+  metadataDone?: Promise<void>;
+}
+
+export async function routeRequest(input: RouteRequestInput): Promise<RouteRequestResult> {
+  const protocol = input.endpoint === "/v1/responses" ? "responses" : "chat_completions";
+  const traceId = randomHex(16);
+  const spanId = randomHex(8);
+  const originalBody = input.body;
+  const chatBody = protocol === "responses" ? responsesToChat(originalBody) : originalBody as ChatRequestBody;
+  const stream = chatBody.stream === true;
+  const routeHeaders = parseRouteHeaders(input.headers);
+  const modelRequested = typeof chatBody.model === "string" ? chatBody.model : "steadyroute:auto";
+  const client = detectClient(input.headers);
+  const routePolicy = routeHeaders.routePolicy ?? "auto";
+  const { candidates, skips } = buildCandidates({
+    db: input.db,
+    body: chatBody,
+    protocol,
+    modelRequested,
+    routeHeaders,
+    providerOrder: policyOrder(routeHeaders, input.providerOrder)
+  });
+
+  createRequest(input.db, {
+    requestId: input.requestId,
+    traceId,
+    spanId,
+    endpoint: input.endpoint,
+    protocol,
+    method: input.method,
+    client,
+    modelRequested,
+    routePolicy,
+    providerAllowlist: routeHeaders.providerAllowlist,
+    providerDenylist: routeHeaders.providerDenylist,
+    requestBody: originalBody,
+    catalogSource: "built-in providers + /Users/jax/Desktop/Apus/open-free-llm-catalog when available",
+    candidates: candidates.map(candidateSummary),
+    skips,
+    traceFullBodies: input.traceFullBodies
+  });
+
+  if (candidates.length === 0) {
+    const errorClass = noCandidateErrorClass(skips);
+    finalizeRequest(input.db, {
+      requestId: input.requestId,
+      finalStatus: "failed",
+      httpStatus: clientStatusFor(errorClass),
+      finalProvider: null,
+      finalModel: null,
+      finalErrorClass: errorClass,
+      responseBody: { error: { message: "No route candidates available", code: errorClass, skips } },
+      usage: unknownUsage(),
+      streamMetadata: null,
+      fallbackDecisions: skips
+    });
+    return { requestId: input.requestId, response: jsonError(input.requestId, traceId, errorClass, "No route candidates available", clientStatusFor(errorClass), skips) };
+  }
+
+  const fallbackDecisions: unknown[] = [];
+  let lastError: SteadyRouteError | null = null;
+  let attemptIndex = 0;
+
+  for (const candidate of candidates) {
+    attemptIndex += 1;
+    const started = Date.now();
+    const startedAt = new Date(started).toISOString();
+    try {
+      if (stream) {
+        const streamResult = await streamProvider({ provider: candidate.provider, model: candidate.model, key: candidate.key, body: chatBody }, protocol === "responses" ? "responses" : "chat");
+        const response = withSteadyHeaders(streamResult.response, input.requestId, traceId, candidate, 200, attemptIndex - 1);
+        const metadataDone = streamResult.metadataPromise.then(({ metadata, bodyForLedger, usage }) => {
+          const endedAt = new Date().toISOString();
+          recordAttempt(input.db, {
+            requestId: input.requestId,
+            attemptIndex,
+            provider: candidate.provider.id,
+            model: candidate.model.id,
+            keyAlias: candidate.key.alias,
+            status: metadata.interrupted ? "failed" : "success",
+            errorClass: metadata.interrupted ? metadata.error_class ?? "stream_interrupted" : null,
+            behavior: metadata.interrupted ? behaviorFor(metadata.error_class ?? "stream_interrupted") : null,
+            upstreamStatus: 200,
+            requestBody: chatBody,
+            responseBody: bodyForLedger,
+            responseHeaders: streamResult.headers,
+            safeErrorExcerpt: "",
+            startedAt,
+            endedAt,
+            latencyMs: Date.now() - started,
+            usage,
+            fallbackDecision: null
+          });
+          finalizeRequest(input.db, {
+            requestId: input.requestId,
+            finalStatus: metadata.interrupted ? "failed" : "success",
+            httpStatus: metadata.interrupted ? 502 : 200,
+            finalProvider: candidate.provider.id,
+            finalModel: candidate.model.id,
+            finalErrorClass: metadata.interrupted ? metadata.error_class ?? "stream_interrupted" : null,
+            responseBody: bodyForLedger,
+            usage,
+            streamMetadata: metadata,
+            fallbackDecisions
+          });
+        });
+        return { requestId: input.requestId, response, metadataDone };
+      }
+
+      const result = await callProvider({ provider: candidate.provider, model: candidate.model, key: candidate.key, body: chatBody });
+      const endedAt = new Date().toISOString();
+      recordAttempt(input.db, {
+        requestId: input.requestId,
+        attemptIndex,
+        provider: candidate.provider.id,
+        model: candidate.model.id,
+        keyAlias: candidate.key.alias,
+        status: "success",
+        errorClass: null,
+        behavior: null,
+        upstreamStatus: result.status,
+        requestBody: chatBody,
+        responseBody: result.body,
+        responseHeaders: result.headers,
+        safeErrorExcerpt: "",
+        startedAt,
+        endedAt,
+        latencyMs: Date.now() - started,
+        usage: result.usage,
+        fallbackDecision: null
+      });
+      const rawBody = result.body && typeof result.body === "object" ? result.body as Record<string, unknown> : {};
+      const responseBody = protocol === "responses" ? chatToResponsesResponse(rawBody, modelRequested) : rawBody;
+      responseBody.steadyroute = { request_id: input.requestId, trace_id: traceId, provider: candidate.provider.id, model: candidate.model.id, attempts: attemptIndex };
+      finalizeRequest(input.db, {
+        requestId: input.requestId,
+        finalStatus: "success",
+        httpStatus: 200,
+        finalProvider: candidate.provider.id,
+        finalModel: candidate.model.id,
+        finalErrorClass: null,
+        responseBody,
+        usage: result.usage,
+        streamMetadata: { stream: false, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: extractFinalText(responseBody), finish_reason: null, interrupted: false },
+        fallbackDecisions
+      });
+      return {
+        requestId: input.requestId,
+        response: new Response(JSON.stringify(responseBody), {
+          status: 200,
+          headers: steadyHeaders(input.requestId, traceId, candidate, attemptIndex - 1, { "content-type": "application/json" })
+        })
+      };
+    } catch (error) {
+      const err = error instanceof SteadyRouteError ? error : new SteadyRouteError(error instanceof Error ? error.message : String(error), "unknown_provider_error");
+      lastError = err;
+      const behavior = behaviorFor(err.errorClass);
+      const fallbackDecision = behavior.fallbackable ? "fallbackable: trying next candidate if available" : "not fallbackable: stopping";
+      fallbackDecisions.push({ provider: candidate.provider.id, model: candidate.model.id, error_class: err.errorClass, decision: fallbackDecision });
+      recordAttempt(input.db, {
+        requestId: input.requestId,
+        attemptIndex,
+        provider: candidate.provider.id,
+        model: candidate.model.id,
+        keyAlias: candidate.key.alias,
+        status: "failed",
+        errorClass: err.errorClass,
+        behavior,
+        upstreamStatus: err.upstreamStatus,
+        requestBody: chatBody,
+        responseBody: { error: err.message, excerpt: err.safeExcerpt },
+        responseHeaders: {},
+        safeErrorExcerpt: err.safeExcerpt,
+        startedAt,
+        endedAt: new Date().toISOString(),
+        latencyMs: Date.now() - started,
+        usage: unknownUsage(),
+        fallbackDecision
+      });
+      if (behavior.cooldown) {
+        setCooldown(input.db, candidate.provider.id, candidate.model.id, candidate.key.alias, err.errorClass, err.message, cooldownDuration(err.errorClass));
+      }
+      if (!behavior.fallbackable) break;
+    }
+  }
+
+  const finalClass = lastError?.errorClass ?? "unknown_provider_error";
+  const status = clientStatusFor(finalClass);
+  const errorBody = {
+    error: {
+      message: lastError ? `${lastError.message}. See steadyroute request ${input.requestId}.` : `All route candidates failed. See steadyroute request ${input.requestId}.`,
+      code: finalClass,
+      type: "steadyroute_error"
+    },
+    steadyroute: { request_id: input.requestId, trace_id: traceId, attempts: attemptIndex }
+  };
+  finalizeRequest(input.db, {
+    requestId: input.requestId,
+    finalStatus: "failed",
+    httpStatus: status,
+    finalProvider: null,
+    finalModel: null,
+    finalErrorClass: finalClass,
+    responseBody: errorBody,
+    usage: unknownUsage(),
+    streamMetadata: null,
+    fallbackDecisions
+  });
+  return { requestId: input.requestId, response: new Response(JSON.stringify(errorBody), { status, headers: { "content-type": "application/json", "x-steadyroute-request-id": input.requestId, "x-steadyroute-trace-id": traceId } }) };
+}
+
+function noCandidateErrorClass(skips: unknown[]): ErrorClass {
+  const reasons = skips.map((skip) => String((skip as { reason?: unknown }).reason ?? ""));
+  if (reasons.some((reason) => reason.includes("tool_unsupported"))) return "tool_unsupported";
+  if (reasons.some((reason) => reason.includes("schema_rejected"))) return "schema_rejected";
+  if (reasons.some((reason) => reason.includes("context_too_large"))) return "context_too_large";
+  if (reasons.some((reason) => /api key|provider key|github cli|token|log in/i.test(reason))) return "auth_failed";
+  return "request_invalid";
+}
+
+function buildCandidates(args: { db: Database.Database; body: ChatRequestBody; protocol: "responses" | "chat_completions"; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {
+  if (args.routeHeaders.routePolicy === "dogfood-invalid-key-then-fallback") {
+    return buildDogfoodFailureCandidates(args);
+  }
+
+  const candidates: RouteCandidate[] = [];
+  const skips: unknown[] = [];
+  const exact = parseExactModel(args.modelRequested);
+  const ordered = orderProviders(args.providerOrder);
+  const toolsPresent = Array.isArray(args.body.tools) ? args.body.tools.length > 0 : Boolean(args.body.tools);
+  const structuredOutputPresent = hasStructuredOutput(args.body);
+  const stream = args.body.stream === true;
+  const estimatedTokens = estimateRequestedTokens(args.body);
+
+  for (const provider of ordered) {
+    if (args.routeHeaders.providerAllowlist.length > 0 && !args.routeHeaders.providerAllowlist.includes(provider.id)) {
+      skips.push({ provider: provider.id, model: "*", reason: "not in provider allowlist" });
+      continue;
+    }
+    if (args.routeHeaders.providerDenylist.includes(provider.id)) {
+      skips.push({ provider: provider.id, model: "*", reason: "provider denylisted" });
+      continue;
+    }
+    const key = resolveKey(args.db, provider);
+    if (!key.present) {
+      skips.push({ provider: provider.id, model: "*", reason: provider.auth.humanAction ?? "missing provider key" });
+      continue;
+    }
+    const models = exact && exact.provider === provider.id ? provider.models.filter((m) => m.id === exact.model) : exact && exact.provider && exact.provider !== provider.id ? [] : provider.models;
+    if (models.length === 0 && exact?.provider === provider.id) {
+      skips.push({ provider: provider.id, model: exact.model, reason: "exact model not found for provider" });
+    }
+    for (const model of models) {
+      if (toolsPresent && model.capabilities.toolCalls === "unsupported") {
+        skips.push({ provider: provider.id, model: model.id, reason: "tool_unsupported by catalog" });
+        continue;
+      }
+      if (args.routeHeaders.modelAllowlist.length > 0 && !matchesModelList(args.routeHeaders.modelAllowlist, provider.id, model.id)) {
+        skips.push({ provider: provider.id, model: model.id, reason: "not in model allowlist" });
+        continue;
+      }
+      if (matchesModelList(args.routeHeaders.modelDenylist, provider.id, model.id)) {
+        skips.push({ provider: provider.id, model: model.id, reason: "model denylisted" });
+        continue;
+      }
+      if (structuredOutputPresent && model.capabilities.jsonMode === "unsupported") {
+        skips.push({ provider: provider.id, model: model.id, reason: "schema_rejected by catalog: structured output unsupported" });
+        continue;
+      }
+      if (stream && model.capabilities.streaming === "unsupported") {
+        skips.push({ provider: provider.id, model: model.id, reason: "streaming unsupported by catalog" });
+        continue;
+      }
+      if (model.contextWindow !== null && estimatedTokens > model.contextWindow) {
+        skips.push({
+          provider: provider.id,
+          model: model.id,
+          reason: `context_too_large: estimated ${estimatedTokens} requested tokens exceeds ${model.contextWindow} context window`,
+          estimated_tokens: estimatedTokens,
+          context_window: model.contextWindow
+        });
+        continue;
+      }
+      const cooldown = getActiveCooldown(args.db, provider.id, model.id, key.alias);
+      if (cooldown) {
+        skips.push({ provider: provider.id, model: model.id, reason: `cooldown until ${new Date(cooldown.until_ms).toISOString()} from ${cooldown.error_class}` });
+        continue;
+      }
+      candidates.push({ provider, model, key, exact: Boolean(exact) });
+    }
+  }
+  return { candidates: orderCandidates(candidates, args), skips };
+}
+
+function buildDogfoodFailureCandidates(args: { db: Database.Database; body: ChatRequestBody; protocol: "responses" | "chat_completions"; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): { candidates: RouteCandidate[]; skips: unknown[] } {
+  const normal = buildCandidates({ ...args, routeHeaders: { ...args.routeHeaders, routePolicy: null } });
+  const openrouter = PROVIDERS.find((provider) => provider.id === "openrouter");
+  const openrouterModel = openrouter?.models[0];
+  const invalidKey = openrouter ? resolveKey(args.db, openrouter, "dogfood-invalid") : null;
+
+  if (!openrouter || !openrouterModel || !invalidKey?.present) {
+    normal.skips.unshift({
+      provider: "openrouter",
+      model: openrouterModel?.id ?? "*",
+      reason: "dogfood-invalid-key-then-fallback requires openrouter/dogfood-invalid key alias"
+    });
+    return normal;
+  }
+
+  const invalidCandidate: RouteCandidate = {
+    provider: openrouter,
+    model: openrouterModel,
+    key: invalidKey,
+    exact: false
+  };
+  return {
+    candidates: [invalidCandidate, ...normal.candidates.filter((candidate) => !(candidate.provider.id === openrouter.id && candidate.key.alias === invalidKey.alias && candidate.model.id === openrouterModel.id))],
+    skips: normal.skips
+  };
+}
+
+function resolveKey(db: Database.Database, provider: ProviderDefinition, preferredAlias = "default"): KeyMaterial {
+  if (preferredAlias !== "default") {
+    const preferred = getProviderKey(db, provider.id, preferredAlias);
+    if (preferred) return { provider: provider.id, alias: preferredAlias, value: preferred, source: "key_store", present: true };
+    return { provider: provider.id, alias: preferredAlias, value: null, source: "none", present: false };
+  }
+
+  const envKey = resolveProviderEnvKey(provider);
+  if (envKey.present) return envKey;
+  const stored = getProviderKey(db, provider.id, "default");
+  if (stored) return { provider: provider.id, alias: "default", value: stored, source: "key_store", present: true };
+  return envKey;
+}
+
+function parseRouteHeaders(headers: Record<string, string | string[] | undefined>): RouteHeaders {
+  return {
+    providerAllowlist: splitHeader(headers["x-steadyroute-provider-allowlist"]),
+    providerDenylist: splitHeader(headers["x-steadyroute-provider-denylist"]),
+    modelAllowlist: splitHeader(headers["x-steadyroute-model-allowlist"]),
+    modelDenylist: splitHeader(headers["x-steadyroute-model-denylist"]),
+    routePolicy: headerString(headers["x-steadyroute-route-policy"])
+  };
+}
+
+function parseExactModel(modelRequested: string): { provider?: string; model: string } | null {
+  if (!modelRequested || modelRequested === "auto" || modelRequested === "steadyroute:auto") return null;
+  if (modelRequested.startsWith("steadyroute:")) {
+    const value = modelRequested.slice("steadyroute:".length);
+    const [provider, ...modelParts] = value.split("/");
+    if (provider && modelParts.length > 0) return { provider, model: modelParts.join("/") };
+    return null;
+  }
+  const [provider, ...modelParts] = modelRequested.split("/");
+  if (provider && modelParts.length > 0 && PROVIDERS.some((p) => p.id === provider)) return { provider, model: modelParts.join("/") };
+  return { model: modelRequested };
+}
+
+function orderProviders(order: string[]): ProviderDefinition[] {
+  return [...PROVIDERS].sort((a, b) => {
+    const ai = order.indexOf(a.id);
+    const bi = order.indexOf(b.id);
+    return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
+  });
+}
+
+function orderCandidates(candidates: RouteCandidate[], args: { body: ChatRequestBody; protocol: "responses" | "chat_completions"; modelRequested: string; routeHeaders: RouteHeaders; providerOrder: string[] }): RouteCandidate[] {
+  const exact = parseExactModel(args.modelRequested);
+  if (exact || args.routeHeaders.providerAllowlist.length > 0 || args.routeHeaders.modelAllowlist.length > 0) return candidates;
+  if (args.routeHeaders.routePolicy && args.routeHeaders.routePolicy !== "stable-coding-agent") return candidates;
+
+  const structuredOutput = hasStructuredOutput(args.body);
+  const codingRequest = args.routeHeaders.routePolicy === "stable-coding-agent" || args.protocol === "responses" || hasRequestTools(args.body);
+  if (!codingRequest && !structuredOutput) return candidates;
+
+  const providerRank = new Map(policyOrder({ ...args.routeHeaders, routePolicy: "stable-coding-agent" }, args.providerOrder).map((providerId, index) => [providerId, index]));
+  return [...candidates].sort((a, b) => {
+    if (structuredOutput) {
+      const aj = jsonModeRank(a.model.capabilities.jsonMode);
+      const bj = jsonModeRank(b.model.capabilities.jsonMode);
+      if (aj !== bj) return aj - bj;
+    }
+    const ap = a.model.priority?.coding ?? 100;
+    const bp = b.model.priority?.coding ?? 100;
+    if (ap !== bp) return ap - bp;
+    return (providerRank.get(a.provider.id) ?? 999) - (providerRank.get(b.provider.id) ?? 999);
+  });
+}
+
+function policyOrder(routeHeaders: RouteHeaders, defaultOrder: string[]): string[] {
+  if (routeHeaders.routePolicy === "dogfood-invalid-key-then-fallback") {
+    return ["openrouter", "github_models", "kilo", "groq", "gemini"];
+  }
+  if (routeHeaders.routePolicy === "free-first") {
+    return ["opencode_free", "kilo", "openrouter", "github_models", "groq", "gemini"];
+  }
+  if (routeHeaders.routePolicy === "stable-coding-agent") {
+    return ["openrouter", "github_models", "kilo", "opencode_free", "groq", "gemini"];
+  }
+  return defaultOrder;
+}
+
+function candidateSummary(candidate: RouteCandidate): Record<string, unknown> {
+  return {
+    provider: candidate.provider.id,
+    model: candidate.model.id,
+    key_alias: candidate.key.alias,
+    key_source: candidate.key.source,
+    exact: candidate.exact,
+    priority: candidate.model.priority ?? null,
+    capabilities: candidate.model.capabilities
+  };
+}
+
+function hasRequestTools(body: ChatRequestBody): boolean {
+  return Array.isArray(body.tools) ? body.tools.length > 0 : Boolean(body.tools);
+}
+
+function hasStructuredOutput(body: ChatRequestBody): boolean {
+  const responseFormat = body.response_format;
+  if (responseFormat && typeof responseFormat === "object") {
+    const type = (responseFormat as Record<string, unknown>).type;
+    if (type === "json_object" || type === "json_schema") return true;
+  }
+  return false;
+}
+
+function jsonModeRank(state: string): number {
+  switch (state) {
+    case "known":
+      return 0;
+    case "estimated":
+      return 1;
+    case "community-reported":
+      return 2;
+    case "unknown":
+      return 3;
+    default:
+      return 4;
+  }
+}
+
+function matchesModelList(list: string[], providerId: string, modelId: string): boolean {
+  return list.some((entry) => {
+    const normalized = entry.startsWith("steadyroute:") ? entry.slice("steadyroute:".length) : entry;
+    if (normalized === modelId) return true;
+    return normalized === `${providerId}/${modelId}`;
+  });
+}
+
+function estimateRequestedTokens(body: ChatRequestBody): number {
+  const promptText = promptTextFromChat(body);
+  const promptTokens = Math.ceil(promptText.length / 4);
+  const maxOutput = firstPositiveNumber(body.max_tokens, body.max_completion_tokens);
+  return promptTokens + (maxOutput ?? 4096);
+}
+
+function firstPositiveNumber(...values: unknown[]): number | null {
+  for (const value of values) {
+    if (typeof value === "number" && Number.isFinite(value) && value > 0) return Math.ceil(value);
+  }
+  return null;
+}
+
+function splitHeader(value: string | string[] | undefined): string[] {
+  const raw = Array.isArray(value) ? value.join(",") : value;
+  return raw ? raw.split(",").map((part) => part.trim()).filter(Boolean) : [];
+}
+
+function headerString(value: string | string[] | undefined): string | null {
+  return Array.isArray(value) ? value.join(",") : value ?? null;
+}
+
+function detectClient(headers: Record<string, string | string[] | undefined>): string | null {
+  const ua = headerString(headers["user-agent"])?.toLowerCase() ?? "";
+  if (ua.includes("codex")) return "codex-cli";
+  if (ua.includes("openai")) return "openai-sdk";
+  if (ua.includes("curl")) return "curl";
+  return ua || null;
+}
+
+function steadyHeaders(requestId: string, traceId: string, candidate: RouteCandidate, fallbackAttempts: number, extra: Record<string, string>): Record<string, string> {
+  return {
+    ...extra,
+    "x-steadyroute-request-id": requestId,
+    "x-steadyroute-trace-id": traceId,
+    "x-routed-via": `${candidate.provider.id}/${candidate.model.id}`,
+    "x-fallback-attempts": String(fallbackAttempts)
+  };
+}
+
+function withSteadyHeaders(response: Response, requestId: string, traceId: string, candidate: RouteCandidate, status: number, fallbackAttempts: number): Response {
+  const headers = steadyHeaders(requestId, traceId, candidate, fallbackAttempts, {});
+  response.headers.forEach((value, key) => {
+    headers[key] = value;
+  });
+  return new Response(response.body, { status, headers });
+}
+
+function jsonError(requestId: string, traceId: string, errorClass: ErrorClass, message: string, status: number, details: unknown): Response {
+  return new Response(JSON.stringify({ error: { message, code: errorClass }, steadyroute: { request_id: requestId, trace_id: traceId, details } }), {
+    status,
+    headers: { "content-type": "application/json", "x-steadyroute-request-id": requestId, "x-steadyroute-trace-id": traceId }
+  });
+}
+
+function cooldownDuration(errorClass: ErrorClass): number {
+  switch (errorClass) {
+    case "auth_failed":
+    case "billing_required":
+    case "model_removed":
+      return 24 * 60 * 60 * 1000;
+    case "quota_exhausted":
+      return 30 * 60 * 1000;
+    case "rate_limited":
+      return 2 * 60 * 1000;
+    default:
+      return 30 * 1000;
+  }
+}
+
+function extractFinalText(body: Record<string, unknown>): string {
+  if (typeof body.output_text === "string") return body.output_text;
+  const choices = Array.isArray(body.choices) ? body.choices as Array<Record<string, unknown>> : [];
+  const message = choices[0]?.message && typeof choices[0]?.message === "object" ? choices[0].message as Record<string, unknown> : {};
+  return typeof message.content === "string" ? message.content : "";
+}
+
+function randomHex(bytes: number): string {
+  return crypto.randomBytes(bytes).toString("hex");
+}

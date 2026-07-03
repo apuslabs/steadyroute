@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.steadyroute/
+.steadyroute-acceptance/
+.release-version
+*.log

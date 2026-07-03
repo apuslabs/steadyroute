@@ -34,19 +34,19 @@ SteadyRoute focuses on making that fragility visible and manageable:
 
 ## Install
 
-macOS and Linux:
+Install from npm:
 
 ```bash
-curl -fsSL https://steadyroute.apuslabs.dev/install.sh | sh
+npm install -g steadyroute
 ```
 
-Windows PowerShell:
+Or run from a local checkout:
 
-```powershell
-iwr https://steadyroute.apuslabs.dev/install.ps1 -useb | iex
+```bash
+npm install
+npm run build
+npm install -g .
 ```
-
-The installer should make the `steadyroute` command available on your PATH.
 
 ## Quick Start
 
@@ -62,28 +62,86 @@ Run diagnostics:
 steadyroute doctor
 ```
 
-Add a provider key:
+List available models:
 
 ```bash
-steadyroute keys add
+steadyroute models
 ```
 
-List available integrations:
+Inspect local paths and configuration:
 
 ```bash
-steadyroute integrations list
+steadyroute config paths
+steadyroute config show
 ```
 
-Apply a local integration:
+Send a request through the default free/no-key route:
 
 ```bash
-steadyroute integrations apply codex
+curl -sS -D /tmp/steadyroute-headers.txt \
+  http://127.0.0.1:3001/v1/chat/completions \
+  -H 'content-type: application/json' \
+  -H 'authorization: Bearer steadyroute-local' \
+  -d '{
+    "model": "steadyroute:auto",
+    "messages": [{"role": "user", "content": "Reply with one short sentence."}]
+  }'
 ```
 
-Explain a failed or surprising request:
+Select an explicit route policy when needed:
 
 ```bash
-steadyroute explain <request-id>
+# Prefer no-login/free routes first.
+curl -H 'x-steadyroute-route-policy: free-first' ...
+
+# Prefer coding-agent-capable free models for agent-like requests.
+curl -H 'x-steadyroute-route-policy: stable-coding-agent' ...
+
+# Restrict routing to a provider or model set.
+curl -H 'x-steadyroute-provider-allowlist: openrouter' \
+  -H 'x-steadyroute-model-denylist: qwen/qwen3-coder:free' ...
+
+# Structured output requests prefer cataloged JSON-mode-capable models.
+curl -H 'content-type: application/json' \
+  -d '{"model":"steadyroute:auto","messages":[{"role":"user","content":"Return JSON."}],"response_format":{"type":"json_object"}}' ...
+```
+
+Explain the request:
+
+```bash
+REQUEST_ID="$(awk 'tolower($1)=="x-steadyroute-request-id:" {print $2}' /tmp/steadyroute-headers.txt | tr -d '\r')"
+steadyroute explain "$REQUEST_ID"
+steadyroute explain "$REQUEST_ID" --json
+```
+
+Export redacted local diagnostics when sharing evidence:
+
+```bash
+steadyroute diagnostics export --output ./steadyroute-diagnostics.json
+```
+
+Check local MVP acceptance evidence coverage without running providers:
+
+```bash
+steadyroute acceptance list
+steadyroute acceptance init --run 2026-07-03-smoke
+eval "$(steadyroute acceptance init --run 2026-07-03-smoke --print-env --force)"
+steadyroute acceptance status
+steadyroute acceptance status --latest
+steadyroute acceptance status --run 2026-07-03-smoke
+steadyroute acceptance audit --latest
+steadyroute acceptance check --latest
+steadyroute acceptance todo --latest
+steadyroute acceptance ids --latest
+steadyroute acceptance status --json
+```
+
+Add an optional provider key only when you want keyed providers:
+
+```bash
+printf '%s' "$OPENROUTER_API_KEY" | steadyroute keys add openrouter
+steadyroute keys list
+steadyroute keys remove openrouter
 ```
 
 ## Local Endpoint
@@ -105,6 +163,7 @@ Checks include:
 - Local installation and port conflicts.
 - Provider key presence and validity.
 - Provider connectivity and network/proxy issues.
+- Active provider/model/key cooldowns and recent provider failures.
 - Catalog freshness.
 - Free-tier quota evidence where available.
 - Request compatibility with selected models.
@@ -112,6 +171,46 @@ Checks include:
 - Tool-call and JSON schema compatibility.
 
 SteadyRoute records request traces locally so you can inspect how a route was selected, which providers were skipped, which fallbacks were attempted, and what final error classification was returned.
+`steadyroute diagnostics export` writes a redacted JSON bundle with doctor output,
+provider status, key aliases, recent request metadata, trace ids, attempts, and
+usage evidence. Full request and response bodies are summarized by default.
+`steadyroute acceptance list` prints the required MVP scenario ids, evidence
+filename patterns, machine-readable audit signals, and manual review notes.
+`steadyroute acceptance init` creates a local evidence run directory with a
+manifest, a `commands.md` capture checklist, a `capture.sh` helper template,
+and `SR_EVIDENCE_DIR` exports for scenario capture.
+The helper template includes local-only request-id listing and explain capture
+helpers so saved evidence can be completed without copying ids by hand.
+`steadyroute acceptance status` scans local evidence files and reports which
+required MVP scenarios have evidence present; it does not mark the gate passed.
+By default it aggregates all files under `.steadyroute-acceptance`; use
+`--latest` or `--run <name>` when checking whether a single acceptance run is
+complete.
+`steadyroute acceptance audit` applies the same file scan plus machine-readable
+signal checks for request ids, endpoints, providers, streaming metadata, usage
+labels, and tool or structured-output shapes. It still does not mark final MVP
+acceptance passed; human review of real provider and dogfood evidence remains
+required.
+`steadyroute acceptance check` wraps the audit in a scriptable exit code: zero
+only when every required scenario has pass-ready local evidence signals, and
+non-zero otherwise.
+`steadyroute acceptance todo` prints the remaining local evidence files,
+signals, and scenario-specific next steps without running providers.
+`steadyroute acceptance ids` extracts request ids from saved local evidence
+files and prints matching `steadyroute explain` commands.
+
+## Default Free Routes
+
+SteadyRoute's default route order starts with no-login/free routes before
+keyed providers:
+
+- OpenCode Free (`opencode_free`)
+- Kilo anonymous free route (`kilo`)
+- Optional keyed providers such as OpenRouter, GitHub Models, Groq, and Gemini
+
+Free-route availability is upstream-controlled and may change without notice.
+Do not send sensitive prompts to anonymous/free routes unless you have reviewed
+the upstream provider's policy.
 
 ## Integrations
 
@@ -124,6 +223,10 @@ steadyroute integrations list
 steadyroute integrations apply codex
 steadyroute integrations rollback codex
 ```
+
+The Codex integration writes a SteadyRoute-owned guide under
+`~/.steadyroute/integrations/codex.md` with the local provider flags for
+`codex exec`. It does not overwrite global Codex configuration.
 
 ## Open Catalog
 

@@ -1,0 +1,499 @@
+import { classifyProviderFailure, safeExcerpt, SteadyRouteError } from "./errors.js";
+import { completeResponseStream, createResponseStreamState, responseStreamEventsFromChatChunk, type ResponseStreamState } from "./protocol.js";
+import { estimateUsageFromText, unknownUsage, usageFromOpenAiBody } from "./usage.js";
+import type { ChatRequestBody, KeyMaterial, ProviderAttemptResult, ProviderDefinition, ProviderModel, StreamMetadata } from "./types.js";
+
+export interface AdapterInput {
+  provider: ProviderDefinition;
+  model: ProviderModel;
+  key: KeyMaterial;
+  body: ChatRequestBody;
+  signal?: AbortSignal;
+}
+
+export interface StreamResult {
+  response: Response;
+  metadataPromise: Promise<{ metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }>;
+  headers: Record<string, string>;
+}
+
+export async function callProvider(input: AdapterInput): Promise<ProviderAttemptResult> {
+  if (input.provider.apiShape === "gemini") return callGemini(input);
+  return callOpenAiCompatible(input);
+}
+
+export async function streamProvider(input: AdapterInput, responseMode: "chat" | "responses"): Promise<StreamResult> {
+  if (input.provider.apiShape === "gemini") return streamGemini(input, responseMode);
+  return streamOpenAiCompatible(input, responseMode);
+}
+
+async function callOpenAiCompatible(input: AdapterInput): Promise<ProviderAttemptResult> {
+  const upstreamBody = buildOpenAiBody(input.body, input.model.id, false, input.provider.id);
+  const response = await fetch(input.provider.baseUrl, {
+    method: "POST",
+    headers: buildHeaders(input.provider, input.key, false),
+    body: JSON.stringify(upstreamBody),
+    signal: input.signal
+  }).catch((error) => {
+    throw new SteadyRouteError(error instanceof Error ? error.message : "Network error", classifyProviderFailure(null, "", error), 502, null, safeExcerpt(String(error)));
+  });
+  const headers = headersToObject(response.headers);
+  const text = await response.text();
+  if (!response.ok) throw new SteadyRouteError(`Provider ${input.provider.id} failed with ${response.status}`, classifyProviderFailure(response.status, text), response.status, response.status, safeExcerpt(text));
+  const body = parseJson(text);
+  return {
+    success: true,
+    status: response.status,
+    headers,
+    body,
+    text,
+    usage: usageFromOpenAiBody(body, headers),
+    upstreamModel: body && typeof body === "object" && typeof (body as { model?: unknown }).model === "string" ? (body as { model: string }).model : input.model.id
+  };
+}
+
+async function streamOpenAiCompatible(input: AdapterInput, responseMode: "chat" | "responses"): Promise<StreamResult> {
+  const upstreamBody = buildOpenAiBody(input.body, input.model.id, true, input.provider.id);
+  const upstream = await fetch(input.provider.baseUrl, {
+    method: "POST",
+    headers: buildHeaders(input.provider, input.key, true),
+    body: JSON.stringify(upstreamBody),
+    signal: input.signal
+  }).catch((error) => {
+    throw new SteadyRouteError(error instanceof Error ? error.message : "Network error", classifyProviderFailure(null, "", error), 502, null, safeExcerpt(String(error)));
+  });
+  const headers = headersToObject(upstream.headers);
+  if (!upstream.ok || !upstream.body) {
+    const text = await upstream.text().catch(() => "");
+    throw new SteadyRouteError(`Provider ${input.provider.id} failed with ${upstream.status}`, classifyProviderFailure(upstream.status, text), upstream.status, upstream.status, safeExcerpt(text));
+  }
+
+  return wrapSseStream(upstream.body, headers, responseMode);
+}
+
+async function callGemini(input: AdapterInput): Promise<ProviderAttemptResult> {
+  if (!input.key.value) {
+    throw new SteadyRouteError("Missing Gemini API key", "auth_failed", 401);
+  }
+  const url = `${input.provider.baseUrl}/${encodeURIComponent(input.model.id)}:generateContent`;
+  const response = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": input.key.value },
+    body: JSON.stringify(toGeminiBody(input.body)),
+    signal: input.signal
+  }).catch((error) => {
+    throw new SteadyRouteError(error instanceof Error ? error.message : "Network error", classifyProviderFailure(null, "", error), 502, null, safeExcerpt(String(error)));
+  });
+  const headers = headersToObject(response.headers);
+  const text = await response.text();
+  if (!response.ok) throw new SteadyRouteError(`Gemini failed with ${response.status}`, classifyProviderFailure(response.status, text), response.status, response.status, safeExcerpt(text));
+  const gemini = parseJson(text);
+  const output = extractGeminiText(gemini);
+  const body = {
+    id: `chatcmpl-gemini-${Date.now()}`,
+    object: "chat.completion",
+    created: Math.floor(Date.now() / 1000),
+    model: input.model.id,
+    choices: [{ index: 0, message: { role: "assistant", content: output }, finish_reason: extractGeminiFinish(gemini) }],
+    usage: geminiUsage(gemini)
+  };
+  return {
+    success: true,
+    status: response.status,
+    headers,
+    body,
+    text: JSON.stringify(body),
+    usage: body.usage ? usageFromOpenAiBody(body, headers) : estimateUsageFromText(JSON.stringify(input.body.messages ?? []), output),
+    upstreamModel: input.model.id
+  };
+}
+
+async function streamGemini(input: AdapterInput, responseMode: "chat" | "responses"): Promise<StreamResult> {
+  if (!input.key.value) {
+    throw new SteadyRouteError("Missing Gemini API key", "auth_failed", 401);
+  }
+  const url = `${input.provider.baseUrl}/${encodeURIComponent(input.model.id)}:streamGenerateContent?alt=sse`;
+  const upstream = await fetch(url, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-goog-api-key": input.key.value },
+    body: JSON.stringify(toGeminiBody(input.body)),
+    signal: input.signal
+  }).catch((error) => {
+    throw new SteadyRouteError(error instanceof Error ? error.message : "Network error", classifyProviderFailure(null, "", error), 502, null, safeExcerpt(String(error)));
+  });
+  const headers = headersToObject(upstream.headers);
+  if (!upstream.ok || !upstream.body) {
+    const text = await upstream.text().catch(() => "");
+    throw new SteadyRouteError(`Gemini failed with ${upstream.status}`, classifyProviderFailure(upstream.status, text), upstream.status, upstream.status, safeExcerpt(text));
+  }
+  const transformed = upstream.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      controller.enqueue(chunk);
+    }
+  }));
+  return wrapGeminiSseStream(transformed, input.model.id, headers, responseMode);
+}
+
+function wrapSseStream(body: ReadableStream<Uint8Array>, headers: Record<string, string>, responseMode: "chat" | "responses"): StreamResult {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const metadata: StreamMetadata = { stream: true, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: "", finish_reason: null, interrupted: false, error_class: null };
+  let lastChunk: Record<string, unknown> | null = null;
+  let sawOpenAiToolCalls = false;
+  const responseState = createResponseStreamState();
+  let resolveMetadata: (value: { metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }) => void;
+  const metadataPromise = new Promise<{ metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }>((resolve) => {
+    resolveMetadata = resolve;
+  });
+  const out = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = body.getReader();
+      let buffer = "";
+      try {
+        readLoop: while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const event of parts) {
+            const dataLines = event.split(/\r?\n/).filter((line) => line.startsWith("data:"));
+            for (const line of dataLines) {
+              const data = line.replace(/^data:\s?/, "");
+              if (data.trim() === "[DONE]") {
+                metadata.done_seen = true;
+                if (responseMode === "chat") controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+                break readLoop;
+              }
+              const parsed = parseJson(data);
+              if (!parsed || typeof parsed !== "object") continue;
+              lastChunk = parsed as Record<string, unknown>;
+              const text = extractOpenAiDeltaText(lastChunk);
+              if (hasOpenAiToolCalls(lastChunk)) sawOpenAiToolCalls = true;
+              if (text) metadata.final_text += text;
+              metadata.finish_reason = extractFinishReason(lastChunk) ?? metadata.finish_reason;
+              metadata.chunk_count += 1;
+              const now = new Date().toISOString();
+              metadata.first_chunk_at ??= now;
+              metadata.final_chunk_at = now;
+              if (responseMode === "responses") {
+                for (const responseEvent of responseStreamEventsFromChatChunk(lastChunk, responseState)) {
+                  controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseEvent)}\n\n`));
+                }
+              } else {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(lastChunk)}\n\n`));
+              }
+              if (metadata.finish_reason) break readLoop;
+            }
+          }
+        }
+        if (responseMode === "responses") {
+          const responseId = responseState.responseId ?? (typeof lastChunk?.id === "string" ? lastChunk.id : `resp_${Date.now()}`);
+          for (const responseEvent of completeResponseStream(responseState, responseId)) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseEvent)}\n\n`));
+          }
+        } else if (!metadata.done_seen) controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        metadata.done_seen = true;
+        markUnsupportedToolFinish(metadata, sawOpenAiToolCalls);
+        controller.close();
+      } catch (error) {
+        markUnsupportedToolFinish(metadata, sawOpenAiToolCalls);
+        if (!metadata.interrupted && hasTerminalStream(metadata, responseState)) {
+          metadata.done_seen = true;
+          tryClose(controller);
+        } else {
+          metadata.interrupted = true;
+          metadata.error_class ??= "stream_interrupted";
+          tryError(controller, error);
+        }
+      } finally {
+        reader.releaseLock();
+        resolveMetadata({
+          metadata,
+          bodyForLedger: { stream: true, final_text: metadata.final_text, last_chunk: lastChunk },
+          usage: metadata.final_text ? estimateUsageFromText("", metadata.final_text) : unknownUsage()
+        });
+      }
+    }
+  });
+  return {
+    response: new Response(out, { status: 200, headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } }),
+    headers,
+    metadataPromise
+  };
+}
+
+function wrapGeminiSseStream(body: ReadableStream<Uint8Array>, model: string, headers: Record<string, string>, responseMode: "chat" | "responses"): StreamResult {
+  const decoder = new TextDecoder();
+  const encoder = new TextEncoder();
+  const metadata: StreamMetadata = { stream: true, chunk_count: 0, first_chunk_at: null, final_chunk_at: null, done_seen: false, final_text: "", finish_reason: null, interrupted: false, error_class: null };
+  const responseState = createResponseStreamState();
+  let resolveMetadata: (value: { metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }) => void;
+  const metadataPromise = new Promise<{ metadata: StreamMetadata; bodyForLedger: Record<string, unknown>; usage: ReturnType<typeof unknownUsage> }>((resolve) => {
+    resolveMetadata = resolve;
+  });
+  const out = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const reader = body.getReader();
+      let buffer = "";
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() ?? "";
+          for (const event of parts) {
+            const data = event.split(/\r?\n/).find((line) => line.startsWith("data:"))?.replace(/^data:\s?/, "");
+            if (!data) continue;
+            const parsed = parseJson(data);
+            const text = extractGeminiText(parsed);
+            if (!text) continue;
+            metadata.final_text += text;
+            metadata.chunk_count += 1;
+            const now = new Date().toISOString();
+            metadata.first_chunk_at ??= now;
+            metadata.final_chunk_at = now;
+            const chunk = {
+              id: `chatcmpl-gemini-${Date.now()}`,
+              object: "chat.completion.chunk",
+              created: Math.floor(Date.now() / 1000),
+              model,
+              choices: [{ index: 0, delta: { role: "assistant", content: text }, finish_reason: null }]
+            };
+            if (responseMode === "responses") {
+              for (const responseEvent of responseStreamEventsFromChatChunk(chunk, responseState)) {
+                controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseEvent)}\n\n`));
+              }
+            } else {
+              controller.enqueue(encoder.encode(`data: ${JSON.stringify(chunk)}\n\n`));
+            }
+          }
+        }
+        metadata.done_seen = true;
+        metadata.finish_reason = metadata.finish_reason ?? "stop";
+        if (responseMode === "chat") controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+        else {
+          const responseId = responseState.responseId ?? `resp_${Date.now()}`;
+          for (const responseEvent of completeResponseStream(responseState, responseId)) {
+            controller.enqueue(encoder.encode(`data: ${JSON.stringify(responseEvent)}\n\n`));
+          }
+        }
+        controller.close();
+      } catch (error) {
+        if (hasTerminalStream(metadata, responseState)) {
+          metadata.done_seen = true;
+          tryClose(controller);
+        } else {
+          metadata.interrupted = true;
+          metadata.error_class ??= "stream_interrupted";
+          tryError(controller, error);
+        }
+      } finally {
+        reader.releaseLock();
+        resolveMetadata({
+          metadata,
+          bodyForLedger: { stream: true, final_text: metadata.final_text },
+          usage: metadata.final_text ? estimateUsageFromText("", metadata.final_text) : unknownUsage()
+        });
+      }
+    }
+  });
+  return {
+    response: new Response(out, { status: 200, headers: { "content-type": "text/event-stream", "cache-control": "no-cache" } }),
+    headers,
+    metadataPromise
+  };
+}
+
+function markUnsupportedToolFinish(metadata: StreamMetadata, sawOpenAiToolCalls: boolean): void {
+  if (metadata.finish_reason === "tool_calls" && !sawOpenAiToolCalls) {
+    metadata.interrupted = true;
+    metadata.error_class = "tool_unsupported";
+  }
+}
+
+function hasTerminalStream(metadata: StreamMetadata, responseState: ResponseStreamState): boolean {
+  return metadata.done_seen || metadata.finish_reason !== null || responseState.completed;
+}
+
+function tryClose(controller: ReadableStreamDefaultController<Uint8Array>): void {
+  try {
+    controller.close();
+  } catch {
+    // The downstream client may already have closed after receiving terminal events.
+  }
+}
+
+function tryError(controller: ReadableStreamDefaultController<Uint8Array>, error: unknown): void {
+  try {
+    controller.error(error);
+  } catch {
+    // The controller can already be closed after a client disconnect.
+  }
+}
+
+function buildOpenAiBody(body: ChatRequestBody, model: string, stream: boolean, providerId: string): Record<string, unknown> {
+  const allowed = new Set(["messages", "temperature", "top_p", "stop", "max_tokens", "max_completion_tokens", "tools", "tool_choice", "response_format", "parallel_tool_calls"]);
+  const out: Record<string, unknown> = { model, stream };
+  for (const [key, value] of Object.entries(body)) {
+    if (allowed.has(key) && value !== undefined) out[key] = value;
+  }
+  if (!out.messages) out.messages = body.messages ?? [{ role: "user", content: "" }];
+  if (providerId === "github_models") slimGithubModelsBody(out);
+  return out;
+}
+
+function slimGithubModelsBody(body: Record<string, unknown>): void {
+  const slimTools = slimToolList(body.tools);
+  if (slimTools) body.tools = slimTools;
+  else delete body.tools;
+
+  if (!slimTools || !isAllowedToolChoice(body.tool_choice, slimTools)) {
+    delete body.tool_choice;
+  }
+  if (!slimTools || slimTools.length < 2) {
+    delete body.parallel_tool_calls;
+  }
+}
+
+function slimToolList(tools: unknown): unknown[] | null {
+  if (!Array.isArray(tools)) return null;
+  const allowedNames = new Set(["exec_command", "write_stdin"]);
+  const slim = tools.filter((tool) => {
+    if (!tool || typeof tool !== "object") return false;
+    const record = tool as Record<string, unknown>;
+    const fn = record.function && typeof record.function === "object" ? record.function as Record<string, unknown> : null;
+    const name = typeof fn?.name === "string" ? fn.name : typeof record.name === "string" ? record.name : null;
+    return Boolean(name && allowedNames.has(name));
+  });
+  return slim.length > 0 ? slim : null;
+}
+
+function isAllowedToolChoice(toolChoice: unknown, tools: unknown[]): boolean {
+  if (!toolChoice || typeof toolChoice !== "object") return true;
+  const obj = toolChoice as Record<string, unknown>;
+  if (obj.type !== "function") return true;
+  const fn = obj.function && typeof obj.function === "object" ? obj.function as Record<string, unknown> : null;
+  const name = typeof fn?.name === "string" ? fn.name : typeof obj.name === "string" ? obj.name : null;
+  if (!name) return false;
+  return tools.some((tool) => {
+    if (!tool || typeof tool !== "object") return false;
+    const record = tool as Record<string, unknown>;
+    const toolFn = record.function && typeof record.function === "object" ? record.function as Record<string, unknown> : null;
+    return toolFn?.name === name || record.name === name;
+  });
+}
+
+function buildHeaders(provider: ProviderDefinition, key: KeyMaterial, stream: boolean): Record<string, string> {
+  const headers: Record<string, string> = { "content-type": "application/json", accept: stream ? "text/event-stream" : "application/json", ...(provider.defaultHeaders ?? {}) };
+  if (provider.auth.method === "anonymous") headers.authorization = provider.id === "opencode_free" ? "Bearer public" : "Bearer anonymous";
+  else if (key.value) headers.authorization = `Bearer ${key.value}`;
+  return headers;
+}
+
+function toGeminiBody(body: ChatRequestBody): Record<string, unknown> {
+  const contents = (body.messages ?? []).filter((message) => message.role !== "system").map((message) => ({
+    role: message.role === "assistant" ? "model" : "user",
+    parts: [{ text: contentToText(message.content) }]
+  }));
+  const system = (body.messages ?? []).filter((message) => message.role === "system").map((message) => contentToText(message.content)).join("\n");
+  const out: Record<string, unknown> = {
+    contents: contents.length > 0 ? contents : [{ role: "user", parts: [{ text: "" }] }],
+    generationConfig: {
+      temperature: typeof body.temperature === "number" ? body.temperature : undefined,
+      maxOutputTokens: typeof body.max_tokens === "number" ? body.max_tokens : typeof body.max_completion_tokens === "number" ? body.max_completion_tokens : undefined
+    }
+  };
+  if (system) out.systemInstruction = { parts: [{ text: system }] };
+  if (Array.isArray(body.tools) && body.tools.length > 0) {
+    out.tools = [{ functionDeclarations: body.tools.map((tool) => openAiToolToGemini(tool)).filter(Boolean) }];
+  }
+  return out;
+}
+
+function openAiToolToGemini(tool: unknown): unknown {
+  if (!tool || typeof tool !== "object") return null;
+  const fn = (tool as Record<string, unknown>).function;
+  if (!fn || typeof fn !== "object") return null;
+  const f = fn as Record<string, unknown>;
+  return {
+    name: typeof f.name === "string" ? f.name.replace(/[^A-Za-z0-9_.-]/g, "_") : "tool",
+    description: typeof f.description === "string" ? f.description : "",
+    parameters: sanitizeGeminiSchema(f.parameters ?? { type: "object", properties: {} })
+  };
+}
+
+function sanitizeGeminiSchema(schema: unknown): unknown {
+  if (Array.isArray(schema)) return schema.map(sanitizeGeminiSchema);
+  if (!schema || typeof schema !== "object") return schema;
+  const disallowed = new Set(["$schema", "$id", "$ref", "$defs", "$comment", "oneOf", "anyOf", "allOf", "not", "dependentRequired", "dependentSchemas", "unevaluatedProperties"]);
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(schema as Record<string, unknown>)) {
+    if (disallowed.has(key) || key.toLowerCase().startsWith("x-")) continue;
+    out[key] = sanitizeGeminiSchema(value);
+  }
+  return out;
+}
+
+function contentToText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((part) => typeof part === "string" ? part : part && typeof part === "object" && "text" in part ? String((part as { text: unknown }).text) : JSON.stringify(part)).join("\n");
+  return content == null ? "" : JSON.stringify(content);
+}
+
+function extractOpenAiDeltaText(chunk: Record<string, unknown>): string {
+  const choices = Array.isArray(chunk.choices) ? chunk.choices as Array<Record<string, unknown>> : [];
+  const delta = choices[0]?.delta && typeof choices[0]?.delta === "object" ? choices[0]?.delta as Record<string, unknown> : {};
+  return typeof delta.content === "string" ? delta.content : "";
+}
+
+function extractFinishReason(chunk: Record<string, unknown>): string | null {
+  const choices = Array.isArray(chunk.choices) ? chunk.choices as Array<Record<string, unknown>> : [];
+  const finish = choices[0]?.finish_reason;
+  return typeof finish === "string" ? finish : null;
+}
+
+function hasOpenAiToolCalls(chunk: Record<string, unknown>): boolean {
+  const choices = Array.isArray(chunk.choices) ? chunk.choices as Array<Record<string, unknown>> : [];
+  const delta = choices[0]?.delta && typeof choices[0]?.delta === "object" ? choices[0]?.delta as Record<string, unknown> : {};
+  return Array.isArray(delta.tool_calls) && delta.tool_calls.length > 0;
+}
+
+function extractGeminiText(body: unknown): string {
+  const candidates = body && typeof body === "object" && Array.isArray((body as { candidates?: unknown }).candidates) ? (body as { candidates: Array<Record<string, unknown>> }).candidates : [];
+  const parts = candidates[0]?.content && typeof candidates[0]?.content === "object" && Array.isArray((candidates[0].content as { parts?: unknown }).parts) ? (candidates[0].content as { parts: Array<Record<string, unknown>> }).parts : [];
+  return parts.map((part) => typeof part.text === "string" ? part.text : "").join("");
+}
+
+function extractGeminiFinish(body: unknown): string | null {
+  const candidates = body && typeof body === "object" && Array.isArray((body as { candidates?: unknown }).candidates) ? (body as { candidates: Array<Record<string, unknown>> }).candidates : [];
+  const reason = candidates[0]?.finishReason;
+  return typeof reason === "string" ? reason.toLowerCase() : null;
+}
+
+function geminiUsage(body: unknown): Record<string, number> | null {
+  const meta = body && typeof body === "object" ? (body as { usageMetadata?: Record<string, unknown> }).usageMetadata : undefined;
+  if (!meta) return null;
+  return {
+    prompt_tokens: typeof meta.promptTokenCount === "number" ? meta.promptTokenCount : 0,
+    completion_tokens: typeof meta.candidatesTokenCount === "number" ? meta.candidatesTokenCount : 0,
+    total_tokens: typeof meta.totalTokenCount === "number" ? meta.totalTokenCount : 0
+  };
+}
+
+function headersToObject(headers: Headers): Record<string, string> {
+  const out: Record<string, string> = {};
+  headers.forEach((value, key) => {
+    out[key.toLowerCase()] = value;
+  });
+  return out;
+}
+
+function parseJson(text: string): any {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
